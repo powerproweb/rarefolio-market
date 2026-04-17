@@ -1,0 +1,28 @@
+{
+  "name": "rarefolio-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cardano integration sidecar for the RareFolio marketplace. Handles CIP-25/CIP-68 metadata, tx building, Aiken validator calls, ADA Handle resolution.",
+  "type": "module",
+  "scripts": {
+    "dev":   "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@blockfrost/blockfrost-js": "^5.7.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.12",
+    "tsx": "^4.15.0",
+    "typescript": "^5.4.5"
+  }
+}

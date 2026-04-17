@@ -1,0 +1,294 @@
+:root {
+    --rf-bg:        #0f0f11;
+    --rf-surface:   #17171a;
+    --rf-surface-2: #1e1e22;
+    --rf-border:    #2a2a30;
+    --rf-text:      #e8e6e1;
+    --rf-muted:     #8d8a84;
+    --rf-accent:    #c9a25a;   /* antique gold */
+    --rf-error:     #e06b6b;
+    --rf-warn:      #e0b36b;
+    --rf-ok:        #6bc78a;
+    --rf-radius:    10px;
+    --rf-gap:       1rem;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+    background: var(--rf-bg);
+    color:      var(--rf-text);
+    font-family: -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+    font-size:  14px;
+    line-height: 1.5;
+}
+
+a { color: var(--rf-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3 { font-family: "Cormorant Garamond", Georgia, serif; font-weight: 500; letter-spacing: 0.01em; }
+h1 { font-size: 1.9rem; margin: 0 0 1rem; }
+h2 { font-size: 1.4rem; margin: 1.5rem 0 0.75rem; }
+h3 { font-size: 1.1rem; margin: 1rem 0 0.5rem; }
+
+.rf-admin-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.9rem 1.5rem;
+    border-bottom: 1px solid var(--rf-border);
+    background: var(--rf-surface);
+}
+.rf-admin-brand {
+    font-family: "Cormorant Garamond", Georgia, serif;
+    font-size: 1.3rem;
+    letter-spacing: 0.02em;
+}
+.rf-admin-env {
+    color: var(--rf-accent);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-left: 0.4rem;
+}
+.rf-admin-nav a {
+    margin-left: 1.25rem;
+    color: var(--rf-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.75rem;
+}
+.rf-admin-nav a:hover { color: var(--rf-text); text-decoration: none; }
+
+.rf-admin-main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+}
+
+.rf-admin-footer {
+    border-top: 1px solid var(--rf-border);
+    padding: 1rem 1.5rem;
+    color: var(--rf-muted);
+    text-align: center;
+}
+
+/* tables */
+table.rf-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--rf-surface);
+    border: 1px solid var(--rf-border);
+    border-radius: var(--rf-radius);
+    overflow: hidden;
+}
+table.rf-table th, table.rf-table td {
+    padding: 0.6rem 0.8rem;
+    text-align: left;
+    border-bottom: 1px solid var(--rf-border);
+    vertical-align: top;
+}
+table.rf-table th {
+    background: var(--rf-surface-2);
+    font-weight: 500;
+    color: var(--rf-muted);
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+}
+table.rf-table tr:last-child td { border-bottom: 0; }
+
+/* status pills */
+.rf-pill {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border: 1px solid var(--rf-border);
+    color: var(--rf-muted);
+}
+.rf-pill.rf-pill-draft     { border-color: #555; color: #aaa; }
+.rf-pill.rf-pill-ready     { border-color: var(--rf-accent); color: var(--rf-accent); }
+.rf-pill.rf-pill-signed    { border-color: #6bc7c2; color: #6bc7c2; }
+.rf-pill.rf-pill-submitted { border-color: #6ba3c7; color: #6ba3c7; }
+.rf-pill.rf-pill-confirmed { border-color: var(--rf-ok); color: var(--rf-ok); }
+.rf-pill.rf-pill-failed    { border-color: var(--rf-error); color: var(--rf-error); }
+
+/* forms */
+.rf-form { display: grid; gap: 1rem; max-width: 720px; }
+.rf-form label { display: block; font-size: 0.8rem; color: var(--rf-muted); margin-bottom: 0.2rem; }
+.rf-form input[type=text], .rf-form input[type=url], .rf-form textarea, .rf-form select {
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    background: var(--rf-surface);
+    border: 1px solid var(--rf-border);
+    border-radius: 6px;
+    color: var(--rf-text);
+    font: inherit;
+}
+.rf-form textarea { min-height: 120px; font-family: "JetBrains Mono", Menlo, monospace; font-size: 13px; }
+
+.rf-btn {
+    display: inline-block;
+    padding: 0.6rem 1.2rem;
+    background: var(--rf-accent);
+    color: #111;
+    border: 0;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+}
+.rf-btn.rf-btn-ghost {
+    background: transparent;
+    color: var(--rf-text);
+    border: 1px solid var(--rf-border);
+}
+.rf-btn:hover { filter: brightness(1.08); }
+
+/* alerts */
+.rf-alert { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; border: 1px solid; }
+.rf-alert.rf-alert-error { border-color: var(--rf-error); color: var(--rf-error); background: rgba(224,107,107,0.08); }
+.rf-alert.rf-alert-warn  { border-color: var(--rf-warn);  color: var(--rf-warn);  background: rgba(224,179,107,0.08); }
+.rf-alert.rf-alert-ok    { border-color: var(--rf-ok);    color: var(--rf-ok);    background: rgba(107,199,138,0.08); }
+
+/* code */
+.rf-code {
+    font-family: "JetBrains Mono", Menlo, monospace;
+    background: var(--rf-surface);
+    border: 1px solid var(--rf-border);
+    padding: 0.75rem;
+    border-radius: 6px;
+    white-space: pre;
+    overflow-x: auto;
+    font-size: 12px;
+}
+.rf-mono { font-family: "JetBrains Mono", Menlo, monospace; font-size: 12px; color: var(--rf-muted); }
+
+.rf-toolbar { display: flex; gap: 0.75rem; margin-bottom: 1rem; align-items: center; }
+.rf-spacer  { flex: 1; }
+
+/* ---------- top-bar user badge ---------- */
+.rf-admin-user {
+    margin-left: 1.25rem;
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--rf-border);
+    border-radius: 999px;
+    color: var(--rf-muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+}
+.rf-admin-logout {
+    margin-left: 0.75rem;
+    color: var(--rf-muted) !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.72rem;
+}
+.rf-admin-logout:hover { color: var(--rf-error) !important; text-decoration: none; }
+
+/* ---------- login page ---------- */
+.rf-login-body {
+    min-height: 100vh;
+    background: radial-gradient(1200px 800px at 20% 20%, #1a1a1f 0%, #0b0b0d 60%, #050506 100%);
+}
+.rf-login-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+    min-height: 100vh;
+}
+@media (max-width: 900px) {
+    .rf-login-wrap { grid-template-columns: 1fr; }
+    .rf-login-hero { min-height: 240px; }
+}
+
+/* left: branded hero */
+.rf-login-hero {
+    position: relative;
+    background-color: #111115;
+    background-size: cover;
+    background-position: center;
+    background-image:
+        linear-gradient(135deg, rgba(201,162,90,0.12) 0%, rgba(0,0,0,0) 50%),
+        radial-gradient(600px 400px at 70% 90%, rgba(201,162,90,0.10), transparent 70%);
+}
+.rf-login-hero-overlay {
+    position: absolute; inset: 0;
+    padding: 3rem 3rem 2rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: linear-gradient(180deg, rgba(15,15,17,0.4) 0%, rgba(15,15,17,0.8) 100%);
+}
+.rf-login-brand { display: flex; flex-direction: column; gap: 0.5rem; }
+.rf-login-logo  { max-width: 180px; max-height: 72px; object-fit: contain; }
+.rf-login-wordmark {
+    font-family: "Cormorant Garamond", Georgia, serif;
+    font-size: 2.4rem;
+    letter-spacing: 0.04em;
+    color: var(--rf-text);
+}
+.rf-login-tagline {
+    color: var(--rf-muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+}
+
+/* art-tile mosaic (renders whatever is in /assets/login/tiles/) */
+.rf-login-tiles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 1fr;
+    gap: 0.5rem;
+    margin: 2rem 0;
+    aspect-ratio: 3 / 2;
+    max-width: 560px;
+}
+.rf-login-tile {
+    background-color: #1c1c20;
+    background-size: cover;
+    background-position: center;
+    border: 1px solid var(--rf-border);
+    border-radius: 6px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    transition: transform 0.3s ease;
+}
+.rf-login-tile:hover { transform: translateY(-2px); }
+.rf-login-tiles-placeholder .rf-login-tile {
+    background:
+        linear-gradient(135deg,
+            rgba(201,162,90,0.18) 0%,
+            rgba(201,162,90,0.06) 40%,
+            rgba(255,255,255,0.02) 100%);
+}
+.rf-login-hero-foot {
+    color: var(--rf-muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-size: 0.65rem;
+}
+
+/* right: card */
+.rf-login-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 3rem;
+    background: var(--rf-surface);
+    border-left: 1px solid var(--rf-border);
+}
+.rf-login-title {
+    font-size: 2.2rem;
+    margin: 0 0 0.25rem;
+}
+.rf-login-sub {
+    color: var(--rf-muted);
+    margin: 0 0 2rem;
+    font-size: 0.9rem;
+}
+.rf-login-form { max-width: 420px; }
+.rf-login-btn  { margin-top: 0.5rem; width: 100%; padding: 0.85rem 1rem; font-size: 0.95rem; }
+.rf-login-foot { margin-top: 2.5rem; color: var(--rf-muted); }

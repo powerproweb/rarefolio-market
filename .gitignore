@@ -1,0 +1,23 @@
+# Env
+.env
+sidecar/.env
+
+# Dependencies
+vendor/
+sidecar/node_modules/
+sidecar/dist/
+
+# Logs
+*.log
+logs/
+
+# Presales ledger (sensitive buyer info — keep off git)
+qd_presales.csv
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store

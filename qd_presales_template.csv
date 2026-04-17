@@ -1,0 +1,2 @@
+rarefolio_token_id,policy_id,asset_name_hex,asset_fingerprint,character_name,edition,buyer_wallet_addr,buyer_email,buyer_name,sale_price_ada,sale_date,mint_tx_hash,gift_flag,notes
+RF-0001,REPLACE_WITH_56HEX_POLICY_ID,526172654661306c696f47656e657369733030303031,asset1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,Ember the Wanderer,1/50,addr1qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,buyer@example.com,Jane Collector,250.000000,2026-04-20 18:00:00,REPLACE_WITH_TX_HASH,0,"Founder sale — first mint"

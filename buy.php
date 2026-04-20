@@ -423,9 +423,8 @@ document.getElementById('btn-connect-pay')?.addEventListener('click', async () =
         const orderData = await orderResp.json();
         if (!orderData.ok) throw new Error(orderData.error || 'Order creation failed.');
 
-        status(`✓ Payment sent! Order #${orderData.order_id}`, true);
-        document.getElementById('wallet-log').textContent +=
-            `\nOrder ID: ${orderData.order_id}\nTx hash: ${txHash}\n\nRareFolio will mint your NFT to your wallet within 24 hours.`;
+        // Redirect to the Thank You page
+        window.location.href = `/order-status.php?order=${orderData.order_id}`;
 
     } catch (e) {
         status('Error: ' + (e?.message ?? String(e)), false);
@@ -467,15 +466,8 @@ document.getElementById('btn-confirm-order')?.addEventListener('click', async ()
         });
         const data = await resp.json();
         if (data.ok) {
-            document.getElementById('order-form').style.display = 'none';
-            document.getElementById('order-success').style.display = 'block';
-            document.getElementById('order-success').innerHTML = `
-                <div class="alert-ok">
-                    <strong>Order received! Order #${data.order_id}</strong><br>
-                    We will verify your payment and mint your NFT to:<br>
-                    <span style="font-family:monospace;font-size:.8rem">${buyerAddr.slice(0,30)}…</span><br><br>
-                    <em>This typically happens within 24 hours. Save your order number.</em>
-                </div>`;
+            // Redirect to the Thank You page
+            window.location.href = `/order-status.php?order=${data.order_id}`;
         } else {
             statusEl.innerHTML = `<span style="color:#fc8181">Error: ${data.error || 'Unknown error'}</span>`;
         }

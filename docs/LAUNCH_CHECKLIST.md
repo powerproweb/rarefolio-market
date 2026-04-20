@@ -1,6 +1,6 @@
 # RareFolio.io — Launch Checklist
 
-**Code baseline:** `742f5ae` (main)
+**Code baseline:** `226f175` (main)
 **Status:** Code complete. All remaining items are creative, operational, or chain work.
 
 ---

@@ -81,7 +81,7 @@ The main site's browser client in `assets/js/rf-market.js` reads
 `window.RF_MARKET_BASE`. It is currently set at the top of `verify.html` and
 `nft.html` to:
 ```html path=null start=null
-<script>window.RF_MARKET_BASE = 'https://market.rarefolio.io';</script>
+<script>window.RF_MARKET_BASE = 'https://marketplace.rarefolio.io';</script>
 ```
 Change this one line in both pages when:
 - You choose a different subdomain or subpath for the marketplace.

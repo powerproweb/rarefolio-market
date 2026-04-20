@@ -98,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'ed'    => $form['edition'] ?: null,
                 'js'    => json_encode($cip25Wrapped, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
                 'cid'   => extractCid($form['image_ipfs']),
-                'admin' => $_SERVER['PHP_AUTH_USER'] ?? 'unknown',
+                'admin' => Auth::currentUser() ?? 'admin',
             ]);
             $ok = 'Mint queued with status `ready`. ID = ' . $pdo->lastInsertId();
         } catch (Throwable $e) {

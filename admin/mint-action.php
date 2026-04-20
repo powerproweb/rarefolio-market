@@ -95,8 +95,10 @@ try {
                 "UPDATE qd_mint_queue SET status = 'confirmed', confirmed_at = NOW(), updated_at = NOW()
                     WHERE id = ?"
             )->execute([$id]);
-            // Also create the qd_tokens row
+            // Create / update the qd_tokens row
             upsertQdToken($pdo, $row, $tx);
+            // Append provenance record (best-effort: silently skip if table not yet migrated)
+            recordMintActivity($pdo, $row, $tx);
             respond(['ok' => true, 'tx' => $tx], 200, $isJson, $id, 'Confirmed on-chain. qd_tokens row created.');
             break;
 
@@ -196,8 +198,40 @@ function upsertQdToken(PDO $pdo, array $row, array $tx): void
 }
 
 /**
- * Unified responder. Redirects for form posts; returns JSON for JS posts.
+ * Append a mint event to qd_nft_activity.
+ * Silently skips if the table does not exist yet (pre-migration environments).
  *
+ * @param array<string,mixed> $row  qd_mint_queue row
+ * @param array<string,mixed> $tx   Blockfrost tx response
+ */
+function recordMintActivity(PDO $pdo, array $row, array $tx): void
+{
+    try {
+        // Resolve qd_tokens.id for the FK
+        $tokenId = $pdo->prepare('SELECT id FROM qd_tokens WHERE rarefolio_token_id = ? LIMIT 1');
+        $tokenId->execute([$row['rarefolio_token_id']]);
+        $nftId = $tokenId->fetchColumn();
+        if (!$nftId) return;  // token row not found — skip
+
+        $pdo->prepare(
+            "INSERT INTO qd_nft_activity
+                (nft_id, rarefolio_token_id, event_type, to_addr, tx_hash, note, event_at)
+             VALUES
+                (:nft_id, :token_id, 'mint', :to_addr, :tx_hash, :note, NOW())"
+        )->execute([
+            ':nft_id'   => $nftId,
+            ':token_id' => $row['rarefolio_token_id'],
+            ':to_addr'  => null,          // recipient stored in qd_tokens.current_owner_wallet
+            ':tx_hash'  => $row['tx_hash'],
+            ':note'     => 'Minted via RareFolio admin dashboard',
+        ]);
+    } catch (Throwable) {
+        // Table may not exist yet — do not break the confirm flow
+        error_log('[mint-action] qd_nft_activity insert skipped: ' . func_get_args()[2] ?? '');
+    }
+}
+
+/**
  * @param array<string,mixed> $payload
  */
 function respond(array $payload, int $code, bool $isJson, int $id, ?string $flash = null, string $kind = 'ok'): never

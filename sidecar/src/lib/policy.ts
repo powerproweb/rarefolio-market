@@ -28,7 +28,6 @@ import {
     resolveNativeScriptHash,
     type NativeScript,
 } from '@meshsdk/core';
-import { bf } from './blockfrost.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers

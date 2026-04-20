@@ -95,6 +95,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flash = 'Sidecar error: ' . $e->getMessage(); $flashKind = 'error';
         }
 
+    } elseif ($action === 'update_price') {
+        $priceAda = trim((string)($_POST['price_ada'] ?? ''));
+        $priceLovelace = $priceAda === '' ? null : (int)round((float)$priceAda * 1_000_000);
+        $pdo->prepare('UPDATE qd_collections SET primary_sale_price_lovelace=?, updated_at=NOW() WHERE id=?')
+            ->execute([$priceLovelace, $id]);
+        header('Location: /admin/collection-detail.php?id=' . $id . '&flash=' . urlencode('Price updated.') . '&kind=ok');
+        exit;
+
     } elseif ($action === 'lock_policy') {
         $slot = (int)($_POST['lock_slot'] ?? 0);
         if ($slot <= 0) { $flash = 'Invalid lock slot.'; $flashKind = 'error'; }
@@ -206,6 +214,26 @@ require __DIR__ . '/includes/header.php';
         <div class="rf-spacer"></div>
         <button type="submit" class="rf-btn">Save recipients</button>
     </div>
+</form>
+
+<!-- Primary sale price -->
+<h2>Primary sale price</h2>
+<form method="post" class="rf-form" style="max-width:500px">
+    <input type="hidden" name="action" value="update_price">
+    <label>Price per token (ADA) <small class="rf-mono">— blank = price on request, 0 = not for sale</small></label>
+    <div style="display:grid;grid-template-columns:1fr auto;gap:0.75rem;align-items:end;">
+        <input type="number" name="price_ada" step="0.000001" min="0"
+               value="<?= $col['primary_sale_price_lovelace'] !== null ? number_format($col['primary_sale_price_lovelace'] / 1_000_000, 6) : '' ?>"
+               placeholder="e.g. 150">
+        <button class="rf-btn" type="submit">Save price</button>
+    </div>
+    <?php if ($col['primary_sale_price_lovelace'] !== null && $col['primary_sale_price_lovelace'] > 0): ?>
+        <p class="rf-mono" style="font-size:.8rem;color:var(--rf-ok);margin:.3rem 0 0">
+            Current: <?= number_format($col['primary_sale_price_lovelace'] / 1_000_000, 2) ?> ₳
+            &nbsp;—&nbsp;
+            <a href="/buy.php?token=<?= h($col['slug']) ?>" target="_blank">Preview buy page ↗</a>
+        </p>
+    <?php endif; ?>
 </form>
 
 <!-- Policy lock -->

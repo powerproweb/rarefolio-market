@@ -20,6 +20,7 @@ import { mountHandleRoutes }  from './routes/handle.js';
 import { mountSyncRoutes }    from './routes/sync.js';
 import { mountSweepRoutes }   from './routes/sweep.js';
 import { mountWebhookRoutes } from './routes/webhook.js';
+import { mountPaymentRoutes } from './routes/payment.js';
 
 const VERSION = '0.2.0';
 
@@ -41,6 +42,7 @@ mountAssetRoutes(app);
 mountMintRoutes(app);
 mountSyncRoutes(app);
 mountSweepRoutes(app);
+mountPaymentRoutes(app);
 mountWebhookRoutes(app);
 mountHandleRoutes(app);
 

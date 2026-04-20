@@ -13,6 +13,7 @@
     <nav class="rf-admin-nav">
         <a href="/admin/index.php">Overview</a>
         <a href="/admin/collections.php">Collections</a>
+        <a href="/admin/orders.php">Orders</a>
         <a href="/admin/mint.php">Mint queue</a>
         <a href="/admin/mint-new.php">New mint</a>
         <a href="/admin/mint-import.php">Bulk import</a>

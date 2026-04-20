@@ -19,7 +19,7 @@ require_once __DIR__ . '/includes/bootstrap.php';
 use RareFolio\Config;
 use RareFolio\Sidecar\Client as SidecarClient;
 
-$allowedPrefixes = ['/mint/', '/sweep/', '/health'];
+$allowedPrefixes = ['/mint/', '/sweep/', '/payment/', '/health'];
 
 $path = (string) ($_GET['path'] ?? '');
 if ($path === '') {
@@ -40,13 +40,21 @@ if (!$allowed) {
 
 $baseUrl = rtrim((string) Config::get('SIDECAR_BASE_URL', 'http://localhost:4000'), '/');
 $url     = $baseUrl . $path;
+$method  = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$rawBody = in_array($method, ['POST', 'PUT', 'PATCH']) ? file_get_contents('php://input') : null;
 
 $ch = curl_init($url);
-curl_setopt_array($ch, [
+$curlOpts = [
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT        => 15,
+    CURLOPT_TIMEOUT        => 20,
+    CURLOPT_CUSTOMREQUEST  => $method,
     CURLOPT_HTTPHEADER     => ['Accept: application/json'],
-]);
+];
+if ($rawBody !== null) {
+    $curlOpts[CURLOPT_POSTFIELDS] = $rawBody;
+    $curlOpts[CURLOPT_HTTPHEADER][] = 'Content-Type: application/json';
+}
+curl_setopt_array($ch, $curlOpts);
 $resp = curl_exec($ch);
 $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 $err  = curl_error($ch);

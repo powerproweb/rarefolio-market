@@ -24,7 +24,8 @@ function tableExists(PDO $pdo, string $table): bool {
 $userCount        = tableExists($pdo, 'qd_users')        ? (int)$pdo->query("SELECT COUNT(*) FROM qd_users")->fetchColumn()                              : null;
 $listingCount     = tableExists($pdo, 'qd_listings')     ? (int)$pdo->query("SELECT COUNT(*) FROM qd_listings WHERE status='active'")->fetchColumn()      : null;
 $activityCount    = tableExists($pdo, 'qd_nft_activity') ? (int)$pdo->query("SELECT COUNT(*) FROM qd_nft_activity")->fetchColumn()                        : null;
-$collectionCount  = tableExists($pdo, 'qd_collections')  ? (int)$pdo->query("SELECT COUNT(*) FROM qd_collections")->fetchColumn()                         : null;
+$collectionCount  = tableExists($pdo, 'qd_collections')  ? (int)$pdo->query("SELECT COUNT(*) FROM qd_collections")->fetchColumn()                                        : null;
+$pendingOrders    = tableExists($pdo, 'qd_orders')       ? (int)$pdo->query("SELECT COUNT(*) FROM qd_orders WHERE status IN ('pending','submitted')")->fetchColumn() : null;
 
 $sidecar = new SidecarClient();
 $sidecarAlive = $sidecar->health();
@@ -100,6 +101,14 @@ require __DIR__ . '/includes/header.php';
         <small class="rf-mono"><a href="/admin/collections.php" style="color:inherit">qd_collections</a></small>
     </div>
     <?php endif; ?>
+    <?php if ($pendingOrders !== null): ?>
+    <div class="rf-code" style="white-space:normal">
+        <div class="rf-mono">PENDING ORDERS</div>
+        <div style="font-size:1.8rem; font-family: 'Cormorant Garamond', Georgia, serif;
+                    color: <?= $pendingOrders > 0 ? 'var(--rf-warn)' : 'inherit' ?>"><?= $pendingOrders ?></div>
+        <small class="rf-mono"><a href="/admin/orders.php" style="color:inherit">qd_orders</a></small>
+    </div>
+    <?php endif; ?>
 </div>
 
 <h2>Quick actions</h2>
@@ -112,6 +121,9 @@ require __DIR__ . '/includes/header.php';
     <?php endif; ?>
     <?php if ($collectionCount !== null): ?>
     <a class="rf-btn rf-btn-ghost" href="/admin/collections.php">Collections</a>
+    <?php endif; ?>
+    <?php if ($pendingOrders !== null): ?>
+    <a class="rf-btn rf-btn-ghost" href="/admin/orders.php"><?= $pendingOrders ?> pending order<?= $pendingOrders !== 1 ? 's' : '' ?></a>
     <?php endif; ?>
 </div>
 

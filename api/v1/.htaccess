@@ -2,7 +2,7 @@
 #
 # Routes every request under /api/v1/* through index.php so the PHP router
 # can dispatch on path + method. Works whether the app is at domain root or
-# a subpath (e.g. marketplace.rarefolio.io/api/v1 vs rarefolio.io/api/v1).
+# a subpath (e.g. market.rarefolio.io/api/v1 vs rarefolio.io/api/v1).
 
 <IfModule mod_rewrite.c>
   RewriteEngine On

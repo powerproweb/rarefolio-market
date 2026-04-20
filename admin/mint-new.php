@@ -78,6 +78,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($errors === []) {
         try {
             $assetNameHex = bin2hex($form['asset_name_utf8']);
+            // Auto-split any string > 64 bytes before saving.
+            // wrap() also calls sanitize() internally, but we sanitize here
+            // so the stored cip25_json is already clean.
+            $asset        = Validator::sanitize($asset);
             $cip25Wrapped = Validator::wrap($form['policy_id'] ?: 'PENDING', $form['asset_name_utf8'], $asset);
 
             $stmt = $pdo->prepare(

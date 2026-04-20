@@ -6,32 +6,41 @@ namespace RareFolio\Cip25;
 /**
  * CIP-25 v1 metadata validator tailored to RareFolio rules.
  *
+ * KEY RULE: Cardano's protocol limits each individual metadata string
+ * to 64 bytes. There is no limit on the NUMBER of fields or nesting depth.
+ * Use Validator::sanitize() to auto-split any long strings before saving.
+ *
  * A valid submission looks like (after wrapping):
  * {
  *   "721": {
  *     "<policy_id>": {
  *       "<asset_name_utf8>": {
- *         "name":        "Character Name",
- *         "image":       "ipfs://<cid>",
- *         "mediaType":   "image/png",
- *         "description": "Short description" | ["line 1", "line 2"],
- *         "artist":      "Artist Name",
- *         "edition":     "3/50",
- *         "attributes":  { "trait_type": "value", ... },
- *         "rarefolio_token_id": "RF-0001",
- *         "collection":  "genesis",
- *         "website":     "https://rarefolio.io/nft/slug"
+ *         "name":              "Character Name",
+ *         "image":             "ipfs://<cid>",
+ *         "mediaType":         "image/jpeg",
+ *         "description":       ["line 1 (<=64 bytes)", "line 2 ..."],
+ *         "artist":            "RareFolio",
+ *         "edition":           "1/8",
+ *         "attributes":        { "any_key": "any_value", ... },
+ *         "rarefolio_token_id": "qd-silver-0000705",
+ *         "collection":        "silverbar-01-founders",
+ *         "website":           "https://rarefolio.io/nft/...",
+ *         "any_custom_field":  "any value — unlimited fields allowed"
  *       }
  *     }
  *   }
  * }
  *
  * Usage:
- *   $result = Validator::validate($metadataArray);
- *   // $result = ['valid' => bool, 'errors' => string[], 'warnings' => string[]]
+ *   $clean  = Validator::sanitize($asset);           // auto-split long strings
+ *   $result = Validator::validate($clean);            // check for errors
+ *   $wrapped = Validator::wrap($policyId, $name, $clean);
  */
 final class Validator
 {
+    /** Maximum bytes per string value — Cardano protocol limit. */
+    public const MAX_STRING_BYTES = 64;
+
     /** Required top-level keys inside the asset object. */
     private const REQUIRED_KEYS = [
         'name',
@@ -56,8 +65,104 @@ final class Validator
         'audio/mpeg', 'audio/wav',
     ];
 
+    // =========================================================================
+    // String sanitiser — CALL THIS BEFORE validate() AND BEFORE SAVING
+    // =========================================================================
+
     /**
-     * @param array<string,mixed> $asset  The raw asset metadata (inner object only).
+     * Recursively walks every value in the metadata tree and splits any string
+     * that exceeds 64 bytes into an array of <=64-byte chunks.
+     *
+     * This is the correct CIP-25 approach for long descriptions, attributes,
+     * or any custom field. Wallets and explorers reassemble the array into one
+     * continuous string for display.
+     *
+     * You can have as many fields as you like — this sanitiser handles all of
+     * them automatically. There is no limit on the number of custom fields.
+     *
+     * @param array<string,mixed> $asset  The asset metadata object
+     * @return array<string,mixed>        Sanitised copy — safe for on-chain use
+     */
+    public static function sanitize(array $asset): array
+    {
+        $result = [];
+        foreach ($asset as $key => $value) {
+            $result[$key] = self::sanitizeValue($value);
+        }
+        return $result;
+    }
+
+    /**
+     * Recursively sanitise a single value.
+     * Strings    → split at 64-byte boundaries (multibyte-safe)
+     * Arrays     → recursively sanitised
+     * Everything → returned unchanged
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    public static function sanitizeValue(mixed $value): mixed
+    {
+        if (is_string($value)) {
+            return strlen($value) <= self::MAX_STRING_BYTES
+                ? $value
+                : self::splitString($value);
+        }
+
+        if (is_array($value)) {
+            $out = [];
+            foreach ($value as $k => $v) {
+                $out[$k] = self::sanitizeValue($v);
+            }
+            return $out;
+        }
+
+        // int, float, bool, null — pass through unchanged
+        return $value;
+    }
+
+    /**
+     * Split a string into an array of chunks where each chunk is <= 64 bytes.
+     * Splitting is done on UTF-8 character boundaries so multibyte characters
+     * are never severed.
+     *
+     * @return string[]
+     */
+    public static function splitString(string $s, int $maxBytes = self::MAX_STRING_BYTES): array
+    {
+        if (strlen($s) <= $maxBytes) {
+            return [$s];
+        }
+
+        $chunks = [];
+        while ($s !== '') {
+            if (strlen($s) <= $maxBytes) {
+                $chunks[] = $s;
+                break;
+            }
+
+            // Start with $maxBytes and back off if we've cut a multibyte char
+            $len = $maxBytes;
+            while ($len > 0 && (ord($s[$len]) & 0xC0) === 0x80) {
+                // $s[$len] is a UTF-8 continuation byte — back off one more
+                $len--;
+            }
+
+            $chunks[] = substr($s, 0, $len);
+            $s        = substr($s, $len);
+        }
+
+        return $chunks;
+    }
+
+    // =========================================================================
+    // Validator
+    // =========================================================================
+
+    /**
+     * Validate asset metadata (call sanitize() first to pre-clean long strings).
+     *
+     * @param array<string,mixed> $asset  The raw asset metadata (inner object).
      * @return array{valid:bool,errors:array<int,string>,warnings:array<int,string>}
      */
     public static function validate(array $asset): array
@@ -72,9 +177,15 @@ final class Validator
             }
         }
 
-        // 2. name
-        if (isset($asset['name']) && is_string($asset['name']) && strlen($asset['name']) > 64) {
-            $warnings[] = 'Field `name` is longer than 64 characters (wallets may truncate).';
+        // 2. name — warn if > 64 bytes (sanitize() would split it; some wallets
+        //    only show the first chunk of an array for the display name)
+        if (isset($asset['name'])) {
+            $name = self::joinIfArray($asset['name']);
+            if (strlen($name) > 64) {
+                $warnings[] = '`name` exceeds 64 bytes. It will be split into an array by sanitize(). '
+                    . 'Some wallets display only the first chunk as the token name — keep the '
+                    . 'most recognisable part in the first 64 bytes.';
+            }
         }
 
         // 3. image must be ipfs://
@@ -92,50 +203,44 @@ final class Validator
             $mt = (string) $asset['mediaType'];
             $ok = false;
             foreach (self::MEDIA_TYPES as $prefix) {
-                if (str_starts_with($mt, $prefix)) {
-                    $ok = true;
-                    break;
-                }
+                if (str_starts_with($mt, $prefix)) { $ok = true; break; }
             }
             if (!$ok) {
                 $warnings[] = "mediaType `$mt` is unusual; double-check it renders in wallets.";
             }
         }
 
-        // 5. rarefolio_token_id format
+        // 5. rarefolio_token_id — flexible format (RF-0001, qd-silver-0000705, etc.)
         if (!empty($asset['rarefolio_token_id'])) {
             $rid = (string) $asset['rarefolio_token_id'];
-            if (!preg_match('/^RF-\d{4,6}$/', $rid)) {
-                $errors[] = '`rarefolio_token_id` must match pattern `RF-0001` (RF- followed by 4–6 digits).';
+            if (strlen($rid) < 3 || strlen($rid) > 64) {
+                $errors[] = '`rarefolio_token_id` must be 3–64 characters (e.g. qd-silver-0000705).';
             }
         }
 
-        // 6. edition format (accept "3/50" or "3 of 50")
+        // 6. edition format (accept "3/50", "1 of 8", "1")
         if (!empty($asset['edition'])) {
             $ed = (string) $asset['edition'];
             if (!preg_match('#^\d+\s*(?:/|of)\s*\d+$#i', $ed) && !preg_match('/^\d+$/', $ed)) {
-                $warnings[] = 'Field `edition` should be formatted like `3/50` or a single integer.';
+                $warnings[] = 'Field `edition` should be formatted like `1/8` or a single integer.';
             }
         }
 
-        // 7. description length (per line)
-        if (isset($asset['description'])) {
-            $lines = is_array($asset['description']) ? $asset['description'] : [$asset['description']];
-            foreach ($lines as $i => $ln) {
-                if (!is_string($ln)) {
-                    $errors[] = "description[$i] is not a string.";
-                    continue;
-                }
-                if (strlen($ln) > 64) {
-                    $warnings[] = "description line " . ($i + 1) . " exceeds 64 chars (" . strlen($ln) . "). Wallets often truncate; split into an array.";
-                }
-            }
+        // 7. Check that all string values are within the 64-byte limit.
+        //    If sanitize() was called first this check is purely for confirmation.
+        $longFields = self::findLongStrings($asset);
+        if (!empty($longFields)) {
+            $warnings[] = 'The following fields have string values > 64 bytes and have NOT been '
+                . 'auto-split yet. Call Validator::sanitize() before saving: '
+                . implode(', ', $longFields);
         }
 
-        // 8. attributes must be object not list
+        // 8. attributes must be object not list (unless intentionally a list)
         if (isset($asset['attributes'])) {
             if (!is_array($asset['attributes']) || array_is_list($asset['attributes'])) {
-                $errors[] = '`attributes` must be a key/value object, not a list.';
+                $warnings[] = '`attributes` is a list array. This is valid CIP-25 but most '
+                    . 'explorers expect a key/value object for trait display. '
+                    . 'Use {"trait": "value"} unless you have a specific reason for a list.';
             }
         }
 
@@ -161,32 +266,56 @@ final class Validator
         ];
     }
 
+    // =========================================================================
+    // Wrapper helper
+    // =========================================================================
+
     /**
-     * Build the full CIP-25 label-721 envelope around an asset.
+     * Build the full CIP-25 label-721 envelope, auto-sanitising long strings.
      *
      * @param array<string,mixed> $asset
      * @return array<string,mixed>
      */
     public static function wrap(string $policyId, string $assetNameUtf8, array $asset): array
     {
+        // Always sanitise before wrapping so the on-chain payload is valid.
+        $safe = self::sanitize($asset);
         return [
             '721' => [
                 $policyId => [
-                    $assetNameUtf8 => $asset,
+                    $assetNameUtf8 => $safe,
                 ],
             ],
         ];
     }
 
+    // =========================================================================
+    // Internal helpers
+    // =========================================================================
+
+    /**
+     * Recursively find all JSON paths that contain string values > 64 bytes.
+     *
+     * @param array<mixed,mixed> $node
+     * @return string[]  Dot-notation paths of offending fields
+     */
+    private static function findLongStrings(array $node, string $prefix = ''): array
+    {
+        $found = [];
+        foreach ($node as $key => $value) {
+            $path = $prefix !== '' ? "{$prefix}.{$key}" : (string) $key;
+            if (is_string($value) && strlen($value) > self::MAX_STRING_BYTES) {
+                $found[] = $path . ' (' . strlen($value) . 'B)';
+            } elseif (is_array($value)) {
+                $found = array_merge($found, self::findLongStrings($value, $path));
+            }
+        }
+        return $found;
+    }
+
     private static function isEmpty(mixed $v): bool
     {
-        if ($v === null || $v === '') {
-            return true;
-        }
-        if (is_array($v) && $v === []) {
-            return true;
-        }
-        return false;
+        return $v === null || $v === '' || (is_array($v) && $v === []);
     }
 
     private static function joinIfArray(mixed $v): string

@@ -14,10 +14,12 @@
  */
 import 'dotenv/config';
 import express from 'express';
-import { mountMintRoutes }  from './routes/mint.js';
-import { mountAssetRoutes } from './routes/asset.js';
-import { mountHandleRoutes } from './routes/handle.js';
-import { mountSyncRoutes }  from './routes/sync.js';
+import { mountMintRoutes }    from './routes/mint.js';
+import { mountAssetRoutes }   from './routes/asset.js';
+import { mountHandleRoutes }  from './routes/handle.js';
+import { mountSyncRoutes }    from './routes/sync.js';
+import { mountSweepRoutes }   from './routes/sweep.js';
+import { mountWebhookRoutes } from './routes/webhook.js';
 
 const VERSION = '0.2.0';
 
@@ -38,6 +40,8 @@ app.get('/health', (_req, res) => {
 mountAssetRoutes(app);
 mountMintRoutes(app);
 mountSyncRoutes(app);
+mountSweepRoutes(app);
+mountWebhookRoutes(app);
 mountHandleRoutes(app);
 
 // Generic 404

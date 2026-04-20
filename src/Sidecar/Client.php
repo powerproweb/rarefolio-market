@@ -42,6 +42,47 @@ final class Client
     }
 
     /**
+     * Derive the policy ID and address for a named collection env key.
+     * e.g. getPolicyInfoForKey('FOUNDERS') queries GET /mint/policy-id?env_key=FOUNDERS
+     *
+     * @return array<string,mixed>  { env_key, policy_id, policy_addr, lock_slot, script_type }
+     */
+    public function getPolicyInfoForKey(string $envKey, ?int $lockSlot = null): array
+    {
+        $params = ['env_key' => strtoupper($envKey)];
+        if ($lockSlot !== null) {
+            $params['lock_slot'] = $lockSlot;
+        }
+        return $this->get('/mint/policy-id?' . http_build_query($params));
+    }
+
+    /**
+     * Get the current ADA balance of a split wallet.
+     *
+     * @return array<string,mixed>  { env_key, wallet_addr, balance_lovelace, balance_ada }
+     */
+    public function getSweepBalance(string $envKey): array
+    {
+        return $this->get('/sweep/balance/' . rawurlencode(strtoupper($envKey)));
+    }
+
+    /**
+     * Run a sweep distribution from a split wallet.
+     *
+     * @param array<int,array{addr:string,pct:float,label:string}> $recipients
+     * @return array<string,mixed>  SweepResult
+     */
+    public function runSweep(string $envKey, array $recipients, int $minLovelace = 20_000_000, bool $submit = true): array
+    {
+        return $this->post('/sweep/run', [
+            'split_wallet_env_key' => strtoupper($envKey),
+            'recipients'           => $recipients,
+            'min_lovelace'         => $minLovelace,
+            'submit'               => $submit,
+        ]);
+    }
+
+    /**
      * Submit a signed transaction CBOR via the sidecar (which calls Blockfrost).
      *
      * @return array<string,mixed>  { tx_hash: string } on success

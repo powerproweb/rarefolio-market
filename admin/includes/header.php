@@ -12,6 +12,7 @@
     <div class="rf-admin-brand">RareFolio <span class="rf-admin-env">admin</span></div>
     <nav class="rf-admin-nav">
         <a href="/admin/index.php">Overview</a>
+        <a href="/admin/collections.php">Collections</a>
         <a href="/admin/mint.php">Mint queue</a>
         <a href="/admin/mint-new.php">New mint</a>
         <a href="/admin/asset-lookup.php">Asset lookup</a>

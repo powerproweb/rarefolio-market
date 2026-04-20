@@ -1,24 +1,18 @@
 /**
- * Policy script construction and derivation.
+ * Policy script construction and derivation — multi-collection edition.
  *
- * Builds a Cardano native script from the server-side POLICY_MNEMONIC and
- * (optionally) POLICY_LOCK_SLOT, then exposes helpers consumed by the mint
- * route.
+ * Supports named policy and split wallets, one per collection.
  *
- * Two script types are supported:
+ * Env var naming convention (set in sidecar/.env):
+ *   Policy wallet:  POLICY_MNEMONIC_{KEY}  e.g. POLICY_MNEMONIC_FOUNDERS
+ *   Split wallet:   SPLIT_MNEMONIC_{KEY}   e.g. SPLIT_MNEMONIC_FOUNDERS
+ *   Legacy (single collection): POLICY_MNEMONIC (no suffix)
  *
- *   1. RequireSignature (no POLICY_LOCK_SLOT set):
- *      { type: "sig", keyHash: <payment-key-hash> }
+ * All named wallets are cached in a Map after first construction.
  *
- *   2. RequireAllOf + time-lock (POLICY_LOCK_SLOT set):
- *      { type: "all", scripts: [
- *          { type: "sig",    keyHash: <payment-key-hash> },
- *          { type: "before", slot: <POLICY_LOCK_SLOT>    },
- *      ]}
- *
- * The policy ID is the hash of the serialised native script. It is stable for
- * the lifetime of the key + slot combination, so it must be recorded in
- * qd_tokens.policy_id before the first mint and never changed.
+ * Lock slot per collection comes from the DB (qd_collections.lock_slot) and is
+ * passed in as a parameter. For the legacy single-collection path it falls back
+ * to POLICY_LOCK_SLOT from env.
  */
 
 import {
@@ -37,12 +31,18 @@ function networkId(): 0 | 1 {
     return process.env.BLOCKFROST_NETWORK === 'mainnet' ? 1 : 0;
 }
 
-function requireMnemonic(): string[] {
-    const raw = process.env.POLICY_MNEMONIC ?? '';
+function buildProvider(): BlockfrostProvider {
+    const projectId = process.env.BLOCKFROST_API_KEY;
+    if (!projectId) throw new Error('BLOCKFROST_API_KEY is not set');
+    return new BlockfrostProvider(projectId);
+}
+
+function readMnemonic(envVarName: string): string[] {
+    const raw = process.env[envVarName] ?? '';
     const words = raw.trim().split(/\s+/).filter(Boolean);
     if (words.length !== 24) {
         throw new Error(
-            `POLICY_MNEMONIC must be a 24-word mnemonic (got ${words.length} words). ` +
+            `${envVarName} must be a 24-word mnemonic (got ${words.length} words). ` +
             `Generate one with: npx @meshsdk/core generate-mnemonic`
         );
     }
@@ -50,81 +50,98 @@ function requireMnemonic(): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Lazy singletons
+// Wallet cache  (Map<envVarName, AppWallet>)
 // ---------------------------------------------------------------------------
 
-let _wallet: AppWallet | null = null;
+const _walletCache = new Map<string, AppWallet>();
+
+function getOrBuildWallet(envVarName: string): AppWallet {
+    if (_walletCache.has(envVarName)) return _walletCache.get(envVarName)!;
+    const wallet = new AppWallet({
+        networkId: networkId(),
+        fetcher:   buildProvider(),
+        signer: { type: 'Mnemonic', words: readMnemonic(envVarName) },
+    });
+    _walletCache.set(envVarName, wallet);
+    return wallet;
+}
+
+// ---------------------------------------------------------------------------
+// Named wallet accessors
+// ---------------------------------------------------------------------------
 
 /**
- * Returns the policy AppWallet singleton.
- * Throws if POLICY_MNEMONIC is not set or malformed.
+ * Returns the policy wallet for a collection env key.
+ * e.g. getPolicyWalletForKey('FOUNDERS') reads POLICY_MNEMONIC_FOUNDERS.
+ * getPolicyWalletForKey() with no arg reads the legacy POLICY_MNEMONIC.
  */
-export function getPolicyWallet(): AppWallet {
-    if (_wallet) return _wallet;
-
-    // BlockfrostProvider from the already-initialised bf() instance isn't
-    // directly reusable here because AppWallet needs the raw provider.
-    const projectId = process.env.BLOCKFROST_API_KEY;
-    if (!projectId) throw new Error('BLOCKFROST_API_KEY is not set');
-
-    const provider = new BlockfrostProvider(projectId);
-
-    _wallet = new AppWallet({
-        networkId: networkId(),
-        fetcher: provider,
-        signer: {
-            type: 'Mnemonic',
-            words: requireMnemonic(),
-        },
-    });
-
-    return _wallet;
+export function getPolicyWalletForKey(envKey?: string): AppWallet {
+    const varName = envKey ? `POLICY_MNEMONIC_${envKey.toUpperCase()}` : 'POLICY_MNEMONIC';
+    return getOrBuildWallet(varName);
 }
 
 /**
- * Returns the NativeScript object for this policy.
- * Deterministic for the same POLICY_MNEMONIC + POLICY_LOCK_SLOT combination.
+ * Returns the split (distribution) wallet for a collection env key.
+ * e.g. getSplitWalletForKey('FOUNDERS') reads SPLIT_MNEMONIC_FOUNDERS.
  */
-export function getNativeScript(): NativeScript {
-    const wallet    = getPolicyWallet();
+export function getSplitWalletForKey(envKey: string): AppWallet {
+    return getOrBuildWallet(`SPLIT_MNEMONIC_${envKey.toUpperCase()}`);
+}
+
+// ---------------------------------------------------------------------------
+// Native script helpers (per key)
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the native script for a given policy key + optional lock slot.
+ * lockSlot=null  → RequireSignature only
+ * lockSlot=N     → RequireAllOf([sig, before(N)])
+ */
+export function getNativeScriptForKey(envKey?: string, lockSlot?: number | null): NativeScript {
+    const wallet      = getPolicyWalletForKey(envKey);
     const paymentAddr = wallet.getPaymentAddress();
+    const sigScript   = ForgeScript.withOneSignature(paymentAddr) as NativeScript;
 
-    // Base: RequireSignature from the policy wallet's payment key
-    const sigScript: NativeScript = ForgeScript.withOneSignature(paymentAddr) as NativeScript;
-
-    const lockSlot = process.env.POLICY_LOCK_SLOT?.trim();
-    if (!lockSlot) return sigScript;
-
-    const slot = parseInt(lockSlot, 10);
-    if (isNaN(slot) || slot <= 0) {
-        throw new Error(`POLICY_LOCK_SLOT must be a positive integer (got "${lockSlot}")`);
+    // Resolve lock slot: explicit param > env var (legacy path only)
+    let slot: number | null = lockSlot ?? null;
+    if (slot === undefined || slot === null) {
+        if (!envKey) {
+            // Legacy single-collection path: read from env
+            const raw = process.env.POLICY_LOCK_SLOT?.trim();
+            slot = raw ? parseInt(raw, 10) : null;
+        }
     }
 
-    // RequireAllOf([sig, before(slot)])
+    if (!slot) return sigScript;
+
+    if (isNaN(slot) || slot <= 0) {
+        throw new Error(`lock_slot must be a positive integer (got ${slot})`);
+    }
+
     return {
         type: 'all',
-        scripts: [
-            sigScript,
-            { type: 'before', slot },
-        ],
+        scripts: [sigScript, { type: 'before', slot }],
     } as NativeScript;
 }
 
-/**
- * Returns the hex policy ID derived from the native script.
- * This is what goes into qd_tokens.policy_id.
- */
-export function getPolicyId(): string {
-    return resolveNativeScriptHash(getNativeScript());
+export function getPolicyIdForKey(envKey?: string, lockSlot?: number | null): string {
+    return resolveNativeScriptHash(getNativeScriptForKey(envKey, lockSlot));
 }
 
-/**
- * Serialises the native script to the string form expected by Mesh's
- * Transaction.mintAsset() as the "forging script".
- */
-export function getForgingScript(): string {
-    // ForgeScript.withOneSignature already returns the serialised form.
-    // For the compound script we serialise via JSON (Mesh accepts this format).
-    const script = getNativeScript();
+export function getForgingScriptForKey(envKey?: string, lockSlot?: number | null): string {
+    const script = getNativeScriptForKey(envKey, lockSlot);
     return typeof script === 'string' ? script : JSON.stringify(script);
 }
+
+// ---------------------------------------------------------------------------
+// Backward-compatible aliases (single-collection / no-key path)
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use getPolicyWalletForKey() */
+export function getPolicyWallet(): AppWallet  { return getPolicyWalletForKey(); }
+/** @deprecated Use getNativeScriptForKey() */
+export function getNativeScript(): NativeScript { return getNativeScriptForKey(); }
+/** @deprecated Use getPolicyIdForKey() */
+export function getPolicyId(): string          { return getPolicyIdForKey(); }
+/** @deprecated Use getForgingScriptForKey() */
+export function getForgingScript(): string     { return getForgingScriptForKey(); }

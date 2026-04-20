@@ -1,7 +1,11 @@
 import type { Express, Request, Response, NextFunction } from 'express';
 import { Transaction, type Mint } from '@meshsdk/core';
 import { bf } from '../lib/blockfrost.js';
-import { getPolicyWallet, getForgingScript, getPolicyId } from '../lib/policy.js';
+import {
+    getPolicyWalletForKey,
+    getForgingScriptForKey,
+    getPolicyIdForKey,
+} from '../lib/policy.js';
 import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
@@ -23,8 +27,10 @@ const MintRequest = z.object({
     rarefolio_token_id: z.string().min(3).max(64),
     collection_slug:    z.string().min(1).max(64),
     asset_name_utf8:    z.string().min(1).max(64),
-    recipient_addr:     z.string().min(10),   // bech32 or hex CBOR
-    cip25:              z.record(z.any()),     // the per-token CIP-25 metadata
+    recipient_addr:     z.string().min(10),        // bech32 or hex CBOR
+    cip25:              z.record(z.any()),          // the per-token CIP-25 metadata
+    policy_env_key:     z.string().max(64).optional(), // e.g. 'FOUNDERS' → POLICY_MNEMONIC_FOUNDERS
+    lock_slot:          z.number().int().positive().nullable().optional(), // from qd_collections.lock_slot
 });
 
 /** POST /mint/submit — submits a signed tx CBOR via Blockfrost. */
@@ -65,16 +71,27 @@ export function mountMintRoutes(app: Express): void {
      * Returns the policy ID derived from POLICY_MNEMONIC + POLICY_LOCK_SLOT.
      * Call this once before minting to record the policy_id in qd_tokens.
      */
+    /**
+     * GET /mint/policy-id?env_key=FOUNDERS
+     *
+     * env_key (optional): collection key. Defaults to legacy POLICY_MNEMONIC.
+     * lock_slot (optional query param): include to show the script with a time-lock.
+     */
     app.get('/mint/policy-id', (_req: Request, res: Response) => {
         try {
-            const policyId    = getPolicyId();
-            const policyAddr  = getPolicyWallet().getPaymentAddress();
-            const lockSlot    = process.env.POLICY_LOCK_SLOT?.trim() || null;
+            const envKey   = String(_req.query.env_key   ?? '').toUpperCase() || undefined;
+            const slotRaw  = _req.query.lock_slot ? Number(_req.query.lock_slot) : null;
+            const lockSlot = (slotRaw && !isNaN(slotRaw)) ? slotRaw : null;
+
+            const policyId   = getPolicyIdForKey(envKey, lockSlot);
+            const policyAddr = getPolicyWalletForKey(envKey).getPaymentAddress();
+
             res.json({
-                policy_id:    policyId,
-                policy_addr:  policyAddr,
-                lock_slot:    lockSlot ? Number(lockSlot) : null,
-                script_type:  lockSlot ? 'RequireAllOf(sig, before)' : 'RequireSignature',
+                env_key:     envKey ?? 'POLICY_MNEMONIC',
+                policy_id:   policyId,
+                policy_addr: policyAddr,
+                lock_slot:   lockSlot,
+                script_type: lockSlot ? 'RequireAllOf(sig, before)' : 'RequireSignature',
             });
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -110,14 +127,18 @@ export function mountMintRoutes(app: Express): void {
             });
         }
 
-        const { rarefolio_token_id, collection_slug, asset_name_utf8, recipient_addr, cip25 } = parsed.data;
+        const { rarefolio_token_id, collection_slug, asset_name_utf8, recipient_addr, cip25,
+                policy_env_key, lock_slot } = parsed.data;
         const assetNameHex   = Buffer.from(asset_name_utf8, 'utf8').toString('hex');
         const recipientBech  = normaliseAddress(recipient_addr);
 
+        // Resolve collection-specific policy (falls back to POLICY_MNEMONIC if no key provided)
+        const envKey = policy_env_key?.toUpperCase() || undefined;
+
         try {
-            const wallet       = getPolicyWallet();
-            const forgingScript = getForgingScript();
-            const policyId     = getPolicyId();
+            const wallet        = getPolicyWalletForKey(envKey);
+            const forgingScript = getForgingScriptForKey(envKey, lock_slot ?? null);
+            const policyId      = getPolicyIdForKey(envKey, lock_slot ?? null);
 
             // Wrap CIP-25 metadata in the standard 721 label structure:
             // { "<policyId>": { "<assetName>": { ...metadata... } } }

@@ -213,17 +213,27 @@ if grep -qE '^POLICY_MNEMONIC(_FOUNDERS)?=word1 word2 word3' "$SIDECAR_ROOT/.env
     log_warn "sidecar/.env has the .env.example placeholder mnemonic (word1 word2 word3 ...) — mint endpoints will fail until a real 24-word mnemonic is set."
 fi
 
-log_info "running npm ci (this is usually 1–3 minutes)"
-NPM_CI_OUT="$($RUN_AS_USER "cd '$SIDECAR_ROOT' && npm ci" 2>&1)"
+# npm ci requires package-lock.json. If it's missing (fresh sidecar repo
+# without a lock committed), fall back to npm install which generates one
+# on first run. Subsequent runs will then use npm ci for reproducibility.
+if [[ -f "$SIDECAR_ROOT/package-lock.json" ]]; then
+    NPM_CMD="npm ci"
+else
+    NPM_CMD="npm install"
+    log_warn "no package-lock.json found in sidecar/ — running 'npm install' to generate one (first-time setup)"
+fi
+
+log_info "running $NPM_CMD (this is usually 1–3 minutes)"
+NPM_CI_OUT="$($RUN_AS_USER "cd '$SIDECAR_ROOT' && $NPM_CMD" 2>&1)"
 NPM_CI_RC=$?
 echo "$NPM_CI_OUT" | tail -20
 if echo "$NPM_CI_OUT" | grep -qi 'Shell access is not enabled'; then
     log_fail "cPanel shell is still blocking commands for $CPANEL_USER. Enable shell access in WHM -> Manage Shell Access (choose 'Normal Shell' or 'Jailed Shell'), then re-run this script."
 fi
-[[ $NPM_CI_RC -eq 0 ]] || log_fail "npm ci exited with code $NPM_CI_RC — see output above"
+[[ $NPM_CI_RC -eq 0 ]] || log_fail "$NPM_CMD exited with code $NPM_CI_RC — see output above"
 [[ -d "$SIDECAR_ROOT/node_modules" ]] \
-    || log_fail "npm ci claimed success but $SIDECAR_ROOT/node_modules is missing — likely a silent shell-lockout"
-log_ok "npm ci completed ($(ls "$SIDECAR_ROOT/node_modules" 2>/dev/null | wc -l) packages installed)"
+    || log_fail "$NPM_CMD claimed success but $SIDECAR_ROOT/node_modules is missing — likely a silent shell-lockout"
+log_ok "$NPM_CMD completed ($(ls "$SIDECAR_ROOT/node_modules" 2>/dev/null | wc -l) packages installed)"
 
 log_info "running npm run build (tsc)"
 NPM_BUILD_OUT="$($RUN_AS_USER "cd '$SIDECAR_ROOT' && npm run build" 2>&1)"

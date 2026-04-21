@@ -137,7 +137,9 @@ export async function runSweep(
     // ------------------------------------------------------------------
     // 4. Build transaction
     // ------------------------------------------------------------------
-    const tx = new Transaction({ initiator: wallet });
+    // AppWallet implements IInitiator at runtime but 1.8.x type decls don't declare it;
+    // cast to any to unblock tsc. Runtime behaviour is correct.
+    const tx = new Transaction({ initiator: wallet as any });
     for (const d of distributions) {
         tx.sendLovelace(d.addr, String(d.lovelace));
     }

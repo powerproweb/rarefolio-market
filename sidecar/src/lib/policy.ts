@@ -127,7 +127,7 @@ export function getNativeScriptForKey(envKey?: string, lockSlot?: number | null)
 
     return {
         type: 'all',
-        scripts: [sigScript, { type: 'before', slot }],
+        scripts: [sigScript, { type: 'before', slot: String(slot) }],
     };
 }
 

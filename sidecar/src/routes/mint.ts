@@ -156,8 +156,11 @@ export function mountMintRoutes(app: Express): void {
                 recipient:     recipientBech,
             };
 
-            const tx = new Transaction({ initiator: wallet });
-            tx.mintAsset(forgingScript, mintAsset);
+            // AppWallet implements IInitiator at runtime; 1.8.x type decls don't say so.
+            // Cast to any to unblock tsc. tx.mintAsset similarly accepts NativeScript JSON
+            // at runtime even though the type decl wants a hex string.
+            const tx = new Transaction({ initiator: wallet as any });
+            tx.mintAsset(forgingScript as any, mintAsset);
             // Explicitly attach the 721 label so wallets display the full metadata.
             tx.setMetadata(721, cip25Wrapped);
 

@@ -73,7 +73,9 @@ export function mountSweepRoutes(app: Express): void {
         const { split_wallet_env_key, recipients, min_lovelace, submit } = parsed.data;
 
         try {
-            const result = await runSweep(split_wallet_env_key, recipients, min_lovelace, submit);
+            // zod-parsed array has optional-typed fields even though the schema requires them;
+            // cast to the Recipient[] shape the sweep lib expects.
+            const result = await runSweep(split_wallet_env_key, recipients as any, min_lovelace, submit);
             res.json(result);
         } catch (err) {
             next(err);

@@ -108,9 +108,21 @@ chmod 600 "$MARKETPLACE_ROOT/.env" 2>/dev/null && log_ok "marketplace .env perms
 # ---------- step 2: run migrations --------------------------------------------
 log_step "Database migrations"
 
-MIGRATE_OUT="$(su - "$CPANEL_USER" -c "cd '$MARKETPLACE_ROOT' && php db/migrate.php" 2>&1)"
+# IMPORTANT: use -s /bin/bash so this works even on cPanel accounts where the
+# user's default login shell is jailshell / nologin / "Shell access disabled".
+# BlueHost disables shell by default for non-root cPanel users. Without -s,
+# every command here would silently be swallowed by the locked shell and the
+# script would claim "success" while doing nothing.
+RUN_AS_USER="su - $CPANEL_USER -s /bin/bash -c"
+
+MIGRATE_OUT="$($RUN_AS_USER "cd '$MARKETPLACE_ROOT' && php db/migrate.php" 2>&1)"
 MIGRATE_RC=$?
 echo "$MIGRATE_OUT"
+
+# Defensive check: if the user's shell is STILL locked despite -s, bail loudly.
+if echo "$MIGRATE_OUT" | grep -qi 'Shell access is not enabled'; then
+    log_fail "cPanel account $CPANEL_USER has shell access disabled and -s /bin/bash did not bypass it. Enable shell for this user in WHM -> Manage Shell Access, or re-run with MARKETPLACE_USER=root (not recommended)."
+fi
 
 if [[ $MIGRATE_RC -ne 0 ]] || echo "$MIGRATE_OUT" | grep -qE '^FAIL|Fatal error|Uncaught'; then
     log_fail "migration runner exited with errors — see output above"
@@ -177,13 +189,17 @@ SIDECAR_ROOT="$MARKETPLACE_ROOT/sidecar"
 log_ok "sidecar root: $SIDECAR_ROOT"
 
 # Ensure a .env exists for the sidecar. Prefer .env.production if present.
+# Note: file copies run as root then chown back to the cPanel user. Doing cp
+# via the user's shell fails silently on shell-locked accounts even with -s.
 if [[ ! -f "$SIDECAR_ROOT/.env" ]]; then
     if [[ -f "$SIDECAR_ROOT/.env.production" ]]; then
-        su - "$CPANEL_USER" -c "cp '$SIDECAR_ROOT/.env.production' '$SIDECAR_ROOT/.env'"
+        cp "$SIDECAR_ROOT/.env.production" "$SIDECAR_ROOT/.env"
+        chown "$CPANEL_USER:$CPANEL_USER" "$SIDECAR_ROOT/.env"
         log_ok "copied sidecar/.env.production -> sidecar/.env"
     elif [[ -f "$SIDECAR_ROOT/.env.example" ]]; then
-        su - "$CPANEL_USER" -c "cp '$SIDECAR_ROOT/.env.example' '$SIDECAR_ROOT/.env'"
-        log_warn "copied sidecar/.env.example -> sidecar/.env (contains placeholders)"
+        cp "$SIDECAR_ROOT/.env.example" "$SIDECAR_ROOT/.env"
+        chown "$CPANEL_USER:$CPANEL_USER" "$SIDECAR_ROOT/.env"
+        log_warn "copied sidecar/.env.example -> sidecar/.env (contains placeholders — sidecar will start but mint/policy endpoints will fail until this file is filled in)"
     else
         log_fail "no sidecar/.env, .env.production, or .env.example found"
     fi
@@ -193,14 +209,30 @@ chmod 600 "$SIDECAR_ROOT/.env" 2>/dev/null && log_ok "sidecar .env perms -> 600"
 if grep -q 'FILL_IN' "$SIDECAR_ROOT/.env" 2>/dev/null; then
     log_warn "sidecar/.env still contains <FILL_IN_...> placeholders — mint endpoints will not work until these are filled in (POLICY_MNEMONIC_FOUNDERS, PLATFORM_PAYOUT_ADDR, CREATOR_ROYALTY_ADDR, etc.)"
 fi
+if grep -qE '^POLICY_MNEMONIC(_FOUNDERS)?=word1 word2 word3' "$SIDECAR_ROOT/.env" 2>/dev/null; then
+    log_warn "sidecar/.env has the .env.example placeholder mnemonic (word1 word2 word3 ...) — mint endpoints will fail until a real 24-word mnemonic is set."
+fi
 
 log_info "running npm ci (this is usually 1–3 minutes)"
-su - "$CPANEL_USER" -c "cd '$SIDECAR_ROOT' && npm ci" || log_fail "npm ci failed"
-log_ok "npm ci completed"
+NPM_CI_OUT="$($RUN_AS_USER "cd '$SIDECAR_ROOT' && npm ci" 2>&1)"
+NPM_CI_RC=$?
+echo "$NPM_CI_OUT" | tail -20
+if echo "$NPM_CI_OUT" | grep -qi 'Shell access is not enabled'; then
+    log_fail "cPanel shell is still blocking commands for $CPANEL_USER. Enable shell access in WHM -> Manage Shell Access (choose 'Normal Shell' or 'Jailed Shell'), then re-run this script."
+fi
+[[ $NPM_CI_RC -eq 0 ]] || log_fail "npm ci exited with code $NPM_CI_RC — see output above"
+[[ -d "$SIDECAR_ROOT/node_modules" ]] \
+    || log_fail "npm ci claimed success but $SIDECAR_ROOT/node_modules is missing — likely a silent shell-lockout"
+log_ok "npm ci completed ($(ls "$SIDECAR_ROOT/node_modules" 2>/dev/null | wc -l) packages installed)"
 
 log_info "running npm run build (tsc)"
-su - "$CPANEL_USER" -c "cd '$SIDECAR_ROOT' && npm run build" || log_fail "npm run build failed"
-log_ok "build completed"
+NPM_BUILD_OUT="$($RUN_AS_USER "cd '$SIDECAR_ROOT' && npm run build" 2>&1)"
+NPM_BUILD_RC=$?
+echo "$NPM_BUILD_OUT" | tail -20
+if echo "$NPM_BUILD_OUT" | grep -qi 'Shell access is not enabled'; then
+    log_fail "cPanel shell is still blocking commands for $CPANEL_USER during build."
+fi
+[[ $NPM_BUILD_RC -eq 0 ]] || log_fail "npm run build exited with code $NPM_BUILD_RC — see output above"
 
 [[ -f "$SIDECAR_ROOT/dist/index.js" ]] \
     || log_fail "expected $SIDECAR_ROOT/dist/index.js after build but it's missing"

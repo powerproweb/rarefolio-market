@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@blockfrost/blockfrost-js": "^5.7.0",
-    "@meshsdk/core": "^1.7.0",
+    "@meshsdk/core": "1.8.14",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "zod": "^3.23.8"

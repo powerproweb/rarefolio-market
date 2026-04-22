@@ -139,7 +139,15 @@ export function mountMintRoutes(app: Express): void {
         const { rarefolio_token_id, collection_slug, asset_name_utf8, recipient_addr, cip25,
                 policy_env_key, lock_slot } = parsed.data;
         const assetNameHex   = Buffer.from(asset_name_utf8, 'utf8').toString('hex');
-        const recipientBech  = normaliseAddress(recipient_addr);
+        let   recipientBech  = normaliseAddress(recipient_addr);
+
+        // Admin UI sends 'addr_test1qq_placeholder_recipient' when no real
+        // recipient is supplied (it never prompts). Detect that and self-mint
+        // to the policy wallet instead — correct default for test mints.
+        const isPlaceholder =
+            recipientBech === '' ||
+            recipientBech.includes('_placeholder_') ||
+            /[^a-z0-9]/.test(recipientBech.replace(/^addr(_test)?1/, ''));
 
         // Resolve collection-specific policy (falls back to POLICY_MNEMONIC if no key provided)
         const envKey = policy_env_key?.toUpperCase() || undefined;
@@ -153,6 +161,12 @@ export function mountMintRoutes(app: Express): void {
             const paymentAddr   = wallet.getPaymentAddress();
             const forgingScript = ForgeScript.withOneSignature(paymentAddr);
             const policyId      = getPolicyIdForKey(envKey, lock_slot ?? null);
+
+            // Swap to self-mint if the caller sent a placeholder recipient
+            if (isPlaceholder) {
+                console.log(`[mint/prepare] placeholder recipient detected — self-minting to policy wallet ${paymentAddr}`);
+                recipientBech = paymentAddr;
+            }
 
             // Wrap CIP-25 metadata in the standard 721 label structure:
             // { "<policyId>": { "<assetName>": { ...metadata... } } }

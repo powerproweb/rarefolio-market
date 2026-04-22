@@ -1,0 +1,141 @@
+# ============================================================
+#  RareFolio Marketplace — Deploy to server on push to main
+# ============================================================
+#
+#  Server: same BlueHost VPS as rarefolio.io (50.6.202.60)
+#
+#  Required GitHub repository secrets (Settings → Secrets → Actions):
+#
+#    Shared with rarefolio.io — copy values from that repo:
+#      SFTP_HOST        — rarefolio.io
+#      SFTP_USER        — BlueHost SSH / cPanel username
+#      SFTP_KEY         — base64-encoded ed25519 private key
+#      SFTP_PORT        — 22
+#
+#    Market-specific — set once:
+#      MARKET_REMOTE_DIR — absolute path to the marketplace web root
+#                          e.g. /home/<user>/public_html/market.rarefolio.io
+#
+#  What this workflow does:
+#    1. Sync PHP application files via lftp SFTP mirror
+#       (skips .env secrets, sidecar/node_modules, tests, dist)
+#    2. SSH in to run DB migrations (idempotent)
+#    3. SSH in to rebuild the sidecar (npm ci + tsc)
+#    4. Restart the sidecar service and verify /health
+#
+#  Sidecar location: ~/sidecar  (outside web root, as per DEPLOY.md)
+#  Sidecar service:  rarefolio-sidecar  (systemd unit, set up by rf-deploy.sh)
+#
+#  Trigger manually:
+#    GitHub → Actions → Deploy marketplace → Run workflow
+# ============================================================
+
+name: Deploy marketplace
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: sync + migrate + sidecar → server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---- SSH key (same format as rarefolio.io deploy) --------------------
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          # Decode base64-encoded key — avoids CRLF/echo corruption
+          echo "${{ secrets.SFTP_KEY }}" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.SFTP_PORT }} ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts
+
+      # ---- 1. Sync PHP application files via lftp SFTP --------------------
+      - name: Install lftp
+        run: sudo apt-get install -y lftp
+
+      - name: Sync files via lftp SFTP
+        run: |
+          lftp -c "
+            set sftp:auto-confirm yes
+            set sftp:connect-program 'ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -p ${{ secrets.SFTP_PORT }} -q'
+            set net:timeout 60
+            set net:max-retries 3
+            open -u \"${{ secrets.SFTP_USER }},\" sftp://${{ secrets.SFTP_HOST }}
+            mirror --reverse --verbose --only-newer \
+              --exclude-glob .git/ \
+              --exclude-glob .gitignore \
+              --exclude-glob .gitattributes \
+              --exclude-glob README.md \
+              --exclude-glob docs/ \
+              --exclude-glob scripts/ \
+              --exclude-glob dist/ \
+              --exclude-glob tests/ \
+              --exclude-glob verify.php \
+              --exclude-glob .env \
+              --exclude-glob .env.old \
+              --exclude-glob .env.production \
+              --exclude-glob sidecar/.env \
+              --exclude-glob sidecar/.env.old \
+              --exclude-glob sidecar/.env.production \
+              --exclude-glob 'sidecar/node_modules/' \
+              --exclude-glob 'sidecar/dist/' \
+              --exclude-glob '*.log' \
+              ./ ${{ secrets.MARKET_REMOTE_DIR }}/
+            bye
+          "
+
+      # ---- 2. DB migrations -----------------------------------------------
+      - name: Run DB migrations
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -p ${{ secrets.SFTP_PORT }} \
+              ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }} \
+              "cd '${{ secrets.MARKET_REMOTE_DIR }}' && php db/migrate.php"
+
+      # ---- 3. Rebuild sidecar (npm ci + tsc) ------------------------------
+      #  Sidecar lives at ~/sidecar (outside web root, per DEPLOY.md).
+      #  npm ci is fast when package-lock.json has not changed;
+      #  tsc build takes ~30s regardless.
+      - name: Build sidecar
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -p ${{ secrets.SFTP_PORT }} \
+              ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }} \
+              "cd ~/sidecar && npm ci && npm run build"
+
+      # ---- 4. Restart service + health check ------------------------------
+      #  Primary: systemd unit installed by rf-deploy.sh
+      #  Fallback comment: if running as a cPanel user without systemctl,
+      #    replace with:  pm2 restart rarefolio-sidecar
+      - name: Restart sidecar service
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -p ${{ secrets.SFTP_PORT }} \
+              ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }} \
+              "systemctl restart rarefolio-sidecar"
+
+      - name: Health check
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -p ${{ secrets.SFTP_PORT }} \
+              ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }} \
+              'for i in $(seq 1 30); do
+                 if curl -fsS http://127.0.0.1:4000/health > /tmp/rf-health.json 2>/dev/null; then
+                   echo "Sidecar healthy after ${i}s:"; cat /tmp/rf-health.json; echo ""; exit 0
+                 fi
+                 sleep 1
+               done
+               echo "Health check timed out after 30s" >&2
+               journalctl -u rarefolio-sidecar -n 20 --no-pager 2>/dev/null || true
+               exit 1'

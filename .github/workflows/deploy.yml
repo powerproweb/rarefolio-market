@@ -56,32 +56,6 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p ${{ secrets.SFTP_PORT }} ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts
 
-      # ---- BOOTSTRAP: generate clean Linux key + verify current key ----------
-      # REMOVE THIS STEP once SFTP_KEY is updated and auth is confirmed working.
-      - name: Key bootstrap (one-time)
-        run: |
-          echo "=== CURRENT SFTP_KEY fingerprint ==="
-          ssh-keygen -l -f ~/.ssh/deploy_key
-
-          echo "=== GENERATING NEW KEY PAIR ON LINUX ==="
-          ssh-keygen -t ed25519 -C "github-deploy-market" -f /tmp/new_deploy_key -N ""
-
-          echo "=== PUBLIC KEY (add this to authorized_keys on server) ==="
-          cat /tmp/new_deploy_key.pub
-
-          echo "=== PRIVATE KEY BASE64 (set this as SFTP_KEY secret) ==="
-          base64 -w 0 /tmp/new_deploy_key
-          echo ""
-
-          echo "=== TEST AUTH WITH NEW KEY (will fail until public key is added) ==="
-          ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
-              -i /tmp/new_deploy_key \
-              -p ${{ secrets.SFTP_PORT }} \
-              ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }} \
-              "echo NEW_KEY_SSH_OK" 2>&1 || echo "(expected until public key is added to server)"
-
-          rm -f /tmp/new_deploy_key /tmp/new_deploy_key.pub
-
       # ---- 1. Sync PHP application files via lftp SFTP --------------------
       - name: Install lftp
         run: sudo apt-get install -y lftp

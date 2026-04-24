@@ -34,7 +34,7 @@ VALUES
      'cip25-v1',
      JSON_OBJECT(
          'name',            'Founders #1 — The Archivist',
-         'image',           'ipfs://REPLACE_WITH_CID/qd-silver-0000705.jpg',
+         'image',           'ipfs://bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy/qd-silver-0000705.jpg',
          'mediaType',       'image/jpeg',
          'description',     'Keeper of the First Ledger. Member of the Rarefolio Founders collection anchored to Silver Bar I (Serial E101837).',
          'bar_serial',      'E101837',
@@ -77,7 +77,7 @@ VALUES
      'cip25-v1',
      JSON_OBJECT(
          'name',            'Founders #2 — The Cartographer',
-         'image',           'ipfs://REPLACE_WITH_CID/qd-silver-0000706.jpg',
+         'image',           'ipfs://bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy/qd-silver-0000706.jpg',
          'mediaType',       'image/jpeg',
          'description',     'Drafter of the Vault Map. Member of the Rarefolio Founders collection anchored to Silver Bar I (Serial E101837).',
          'bar_serial',      'E101837',
@@ -120,7 +120,7 @@ VALUES
      'cip25-v1',
      JSON_OBJECT(
          'name',            'Founders #3 — The Sentinel',
-         'image',           'ipfs://REPLACE_WITH_CID/qd-silver-0000707.jpg',
+         'image',           'ipfs://bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy/qd-silver-0000707.jpg',
          'mediaType',       'image/jpeg',
          'description',     'Warden of the Inaugural Seal. Member of the Rarefolio Founders collection anchored to Silver Bar I (Serial E101837).',
          'bar_serial',      'E101837',
@@ -163,7 +163,7 @@ VALUES
      'cip25-v1',
      JSON_OBJECT(
          'name',            'Founders #4 — The Artisan',
-         'image',           'ipfs://REPLACE_WITH_CID/qd-silver-0000708.jpg',
+         'image',           'ipfs://bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy/qd-silver-0000708.jpg',
          'mediaType',       'image/jpeg',
          'description',     'Forger of the Foundational Die. Member of the Rarefolio Founders collection anchored to Silver Bar I (Serial E101837).',
          'bar_serial',      'E101837',
@@ -206,7 +206,7 @@ VALUES
      'cip25-v1',
      JSON_OBJECT(
          'name',            'Founders #5 — The Scholar',
-         'image',           'ipfs://REPLACE_WITH_CID/qd-silver-0000709.jpg',
+         'image',           'ipfs://bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy/qd-silver-0000709.jpg',
          'mediaType',       'image/jpeg',
          'description',     'Historian of the First Provenance. Member of the Rarefolio Founders collection anchored to Silver Bar I (Serial E101837).',
          'bar_serial',      'E101837',
@@ -249,7 +249,7 @@ VALUES
      'cip25-v1',
      JSON_OBJECT(
          'name',            'Founders #6 — The Ambassador',
-         'image',           'ipfs://REPLACE_WITH_CID/qd-silver-0000710.jpg',
+         'image',           'ipfs://bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy/qd-silver-0000710.jpg',
          'mediaType',       'image/jpeg',
          'description',     'Emissary of the Original Charter. Member of the Rarefolio Founders collection anchored to Silver Bar I (Serial E101837).',
          'bar_serial',      'E101837',
@@ -292,7 +292,7 @@ VALUES
      'cip25-v1',
      JSON_OBJECT(
          'name',            'Founders #7 — The Mentor',
-         'image',           'ipfs://REPLACE_WITH_CID/qd-silver-0000711.jpg',
+         'image',           'ipfs://bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy/qd-silver-0000711.jpg',
          'mediaType',       'image/jpeg',
          'description',     'Steward of the Collector''s Path. Member of the Rarefolio Founders collection anchored to Silver Bar I (Serial E101837).',
          'bar_serial',      'E101837',
@@ -335,7 +335,7 @@ VALUES
      'cip25-v1',
      JSON_OBJECT(
          'name',            'Founders #8 — The Architect',
-         'image',           'ipfs://REPLACE_WITH_CID/qd-silver-0000712.jpg',
+         'image',           'ipfs://bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy/qd-silver-0000712.jpg',
          'mediaType',       'image/jpeg',
          'description',     'Builder of the Permanent Vault. Member of the Rarefolio Founders collection anchored to Silver Bar I (Serial E101837).',
          'bar_serial',      'E101837',

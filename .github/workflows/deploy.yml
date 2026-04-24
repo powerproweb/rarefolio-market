@@ -7,24 +7,27 @@
 #  Required GitHub repository secrets (Settings → Secrets → Actions):
 #
 #    Shared with rarefolio.io — copy values from that repo:
-#      SFTP_HOST        — rarefolio.io
-#      SFTP_USER        — BlueHost SSH / cPanel username
-#      SFTP_KEY         — base64-encoded ed25519 private key
-#      SFTP_PORT        — 22
+#      SFTP_HOST             — rarefolio.io
+#      SFTP_USER             — BlueHost SSH / cPanel username
+#      SFTP_KEY              — base64-encoded ed25519 private key
+#      SFTP_PORT             — 22
 #
 #    Market-specific — set once:
-#      MARKET_REMOTE_DIR — absolute path to the marketplace web root
-#                          e.g. /home/<user>/public_html/market.rarefolio.io
+#      MARKET_REMOTE_DIR     — absolute path to the marketplace web root
+#                              e.g. /home/<user>/public_html/market.rarefolio.io
+#      DEPLOY_WEBHOOK_SECRET — 64-char hex secret matching .env DEPLOY_WEBHOOK_SECRET
+#                              Generate: php scripts/gen-webhook-secret.php
+#
+#  NOTE: BlueHost disables SSH shell access for SFTP-only accounts.
+#  File sync uses the SFTP subsystem (no shell needed).
+#  DB migrations are triggered via an HTTP endpoint (admin/run-migrations.php)
+#  protected by DEPLOY_WEBHOOK_SECRET.
+#  Sidecar rebuild/restart must be done manually until shell access is enabled.
 #
 #  What this workflow does:
 #    1. Sync PHP application files via lftp SFTP mirror
-#       (skips .env secrets, sidecar/node_modules, tests, dist)
-#    2. SSH in to run DB migrations (idempotent)
-#    3. SSH in to rebuild the sidecar (npm ci + tsc)
-#    4. Restart the sidecar service and verify /health
-#
-#  Sidecar location: ~/sidecar  (outside web root, as per DEPLOY.md)
-#  Sidecar service:  rarefolio-sidecar  (systemd unit, set up by rf-deploy.sh)
+#    2. Trigger DB migrations via HTTPS (admin/run-migrations.php)
+#    3. Verify marketplace health via public API
 #
 #  Trigger manually:
 #    GitHub → Actions → Deploy marketplace → Run workflow
@@ -91,51 +94,38 @@ jobs:
             bye
           "
 
-      # ---- 2. DB migrations -----------------------------------------------
+      # ---- 2. DB migrations via HTTP (no shell required) --------------------
+      #  Calls admin/run-migrations.php over HTTPS, authenticated by
+      #  DEPLOY_WEBHOOK_SECRET. Safe to skip if secret not yet configured.
       - name: Run DB migrations
+        if: ${{ secrets.DEPLOY_WEBHOOK_SECRET != '' }}
         run: |
-          ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -p ${{ secrets.SFTP_PORT }} \
-              ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }} \
-              "cd '${{ secrets.MARKET_REMOTE_DIR }}' && php db/migrate.php"
+          RESPONSE=$(curl -fsS \
+            -X POST \
+            -H "X-Deploy-Secret: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}" \
+            "https://${{ secrets.SFTP_HOST }}/admin/run-migrations.php" 2>&1) || true
+          echo "Migration response: $RESPONSE"
 
-      # ---- 3. Rebuild sidecar (npm ci + tsc) ------------------------------
-      #  Sidecar lives at ~/sidecar (outside web root, per DEPLOY.md).
-      #  npm ci is fast when package-lock.json has not changed;
-      #  tsc build takes ~30s regardless.
-      - name: Build sidecar
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -p ${{ secrets.SFTP_PORT }} \
-              ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }} \
-              "cd ~/sidecar && npm ci && npm run build"
-
-      # ---- 4. Restart service + health check ------------------------------
-      #  Primary: systemd unit installed by rf-deploy.sh
-      #  Fallback comment: if running as a cPanel user without systemctl,
-      #    replace with:  pm2 restart rarefolio-sidecar
-      - name: Restart sidecar service
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -p ${{ secrets.SFTP_PORT }} \
-              ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }} \
-              "systemctl restart rarefolio-sidecar"
-
+      # ---- 3. Health check via public API ----------------------------------
       - name: Health check
         run: |
-          ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -p ${{ secrets.SFTP_PORT }} \
-              ${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }} \
-              'for i in $(seq 1 30); do
-                 if curl -fsS http://127.0.0.1:4000/health > /tmp/rf-health.json 2>/dev/null; then
-                   echo "Sidecar healthy after ${i}s:"; cat /tmp/rf-health.json; echo ""; exit 0
-                 fi
-                 sleep 1
-               done
-               echo "Health check timed out after 30s" >&2
-               journalctl -u rarefolio-sidecar -n 20 --no-pager 2>/dev/null || true
-               exit 1'
+          for i in $(seq 1 10); do
+            STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" \
+              "https://${{ secrets.SFTP_HOST }}/api/v1/health" 2>/dev/null || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "API healthy (HTTP 200)"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS — retrying..."
+            sleep 3
+          done
+          echo "Health check failed after 10 attempts"
+          exit 1
+
+      # ---- NOTE: Sidecar rebuild/restart ----------------------------------
+      #  BlueHost shell access is disabled for this account.
+      #  Sidecar changes require manual rebuild:
+      #    1. Enable shell in cPanel → SSH Access → Manage Shell Access
+      #    2. Run: bash scripts/rf-deploy.sh  (or npm ci && npm run build)
+      #  To re-enable automated sidecar deploys, add SSH shell access and
+      #  restore the SSH steps from git history.

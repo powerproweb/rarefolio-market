@@ -98,7 +98,6 @@ jobs:
       #  Calls admin/run-migrations.php over HTTPS, authenticated by
       #  DEPLOY_WEBHOOK_SECRET. Safe to skip if secret not yet configured.
       - name: Run DB migrations
-        if: ${{ secrets.DEPLOY_WEBHOOK_SECRET != '' }}
         run: |
           RESPONSE=$(curl -fsS \
             -X POST \

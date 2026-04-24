@@ -35,15 +35,19 @@ try {
     $pdo = Db::pdo();
 
     // Match tokens by CIP-25 JSON attribute OR by collection_slug containing the serial.
+    // Note: PDO::ATTR_EMULATE_PREPARES=false requires each named parameter to be unique
+    // within a single query — use :s1/:s2/:s3 instead of repeating :serial_exact.
     $slugLike = '%' . $serial . '%';
     $binds = [
-        ':serial_exact' => $serial,
-        ':slug_like'    => $slugLike,
+        ':s1'        => $serial,
+        ':s2'        => $serial,
+        ':s3'        => $serial,
+        ':slug_like' => $slugLike,
     ];
     $whereClause = "
-        JSON_UNQUOTE(JSON_EXTRACT(cip25_json, '$.bar_serial'))               = :serial_exact
-        OR JSON_UNQUOTE(JSON_EXTRACT(cip25_json, '$.attributes.bar_serial')) = :serial_exact
-        OR JSON_UNQUOTE(JSON_EXTRACT(cip25_json, '$.properties.bar_serial')) = :serial_exact
+        JSON_UNQUOTE(JSON_EXTRACT(cip25_json, '$.bar_serial'))               = :s1
+        OR JSON_UNQUOTE(JSON_EXTRACT(cip25_json, '$.attributes.bar_serial')) = :s2
+        OR JSON_UNQUOTE(JSON_EXTRACT(cip25_json, '$.properties.bar_serial')) = :s3
         OR collection_slug LIKE :slug_like
     ";
 

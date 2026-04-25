@@ -18,6 +18,10 @@
         <a href="/admin/mint-new.php">New mint</a>
         <a href="/admin/mint-import.php">Bulk import</a>
         <a href="/admin/asset-lookup.php">Asset lookup</a>
+        <span id="rf-wallet-status" class="rf-wallet-status rf-wallet-status-checking" title="Cardano wallet connection status">
+            <span class="rf-wallet-dot" aria-hidden="true"></span>
+            <span id="rf-wallet-status-text">Wallet: checking…</span>
+        </span>
         <?php if (class_exists('RareFolio\\Auth') && \RareFolio\Auth::isLoggedIn()): ?>
             <span class="rf-admin-user"><?= h((string) \RareFolio\Auth::currentUser()) ?></span>
             <a href="/admin/logout.php" class="rf-admin-logout">Sign out</a>

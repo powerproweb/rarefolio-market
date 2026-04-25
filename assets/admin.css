@@ -189,6 +189,44 @@ table.rf-table tr:last-child td { border-bottom: 0; }
 }
 .rf-admin-logout:hover { color: var(--rf-error) !important; text-decoration: none; }
 
+/* ---------- admin wallet connection status ---------- */
+.rf-wallet-status {
+    margin-left: 1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--rf-border);
+    border-radius: 999px;
+    color: var(--rf-muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+}
+.rf-wallet-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    display: inline-block;
+    background: var(--rf-warn);
+}
+.rf-wallet-status-connected {
+    border-color: rgba(107,199,138,0.55);
+    color: var(--rf-ok);
+}
+.rf-wallet-status-connected .rf-wallet-dot {
+    background: var(--rf-ok);
+}
+.rf-wallet-status-disconnected {
+    border-color: rgba(224,107,107,0.45);
+    color: var(--rf-error);
+}
+.rf-wallet-status-disconnected .rf-wallet-dot {
+    background: var(--rf-error);
+}
+.rf-wallet-status-checking .rf-wallet-dot {
+    background: var(--rf-warn);
+}
+
 /* ---------- login page ---------- */
 .rf-login-body {
     min-height: 100vh;

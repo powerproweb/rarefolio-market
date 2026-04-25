@@ -112,6 +112,97 @@ function post_json(string $url, array $payload, array $headers = []): array
     ];
 }
 
+function normalize_addr(string $addr): string
+{
+    $v = trim($addr);
+    if (str_starts_with($v, '0x') || str_starts_with($v, '0X')) {
+        return substr($v, 2);
+    }
+    return $v;
+}
+
+function first_string_value(array $src, array $keys): ?string
+{
+    foreach ($keys as $k) {
+        $v = $src[$k] ?? null;
+        if (is_string($v) && trim($v) !== '') {
+            return trim($v);
+        }
+    }
+    return null;
+}
+
+function verify_signature_with_fallbacks(string $sidecarBase, string $signedAddr, string $nonce, array $signature): array
+{
+    $signedAddr = normalize_addr($signedAddr);
+    $attempts = [
+        ['path' => '/auth/verify-signature', 'payload' => ['signed_address' => $signedAddr, 'nonce' => $nonce, 'signature' => $signature]],
+        ['path' => '/auth/verify-signature', 'payload' => ['signedAddress' => $signedAddr, 'nonce' => $nonce, 'signature' => $signature]],
+        ['path' => '/auth/verify-signature', 'payload' => ['signed_address' => $signedAddr, 'message' => $nonce, 'signature' => $signature]],
+        ['path' => '/auth/verify-signature', 'payload' => ['signedAddress' => $signedAddr, 'message' => $nonce, 'signature' => $signature]],
+        ['path' => '/auth/verify',           'payload' => ['signed_address' => $signedAddr, 'nonce' => $nonce, 'signature' => $signature]],
+        ['path' => '/auth/verify',           'payload' => ['signedAddress' => $signedAddr, 'nonce' => $nonce, 'signature' => $signature]],
+    ];
+
+    $lastError = 'unknown';
+    foreach ($attempts as $a) {
+        try {
+            $resp = post_json($sidecarBase . $a['path'], $a['payload']);
+        } catch (Throwable $e) {
+            $lastError = $e->getMessage();
+            continue;
+        }
+        $body = $resp['body'];
+        if (!is_array($body)) {
+            $lastError = 'non-json response';
+            continue;
+        }
+
+        if (($body['ok'] ?? null) === true || array_key_exists('signature_valid', $body) || array_key_exists('valid', $body) || array_key_exists('is_valid', $body)) {
+            $sigValid = (bool) ($body['signature_valid'] ?? $body['valid'] ?? $body['is_valid'] ?? false);
+            $reward   = first_string_value($body, ['reward_address', 'rewardAddress', 'stake_address', 'stakeAddress']);
+            return [
+                'ok'              => true,
+                'signature_valid' => $sigValid,
+                'reward_address'  => $reward,
+            ];
+        }
+
+        $lastError = (string) ($body['error'] ?? ('http ' . (int) $resp['status']));
+    }
+
+    return [
+        'ok' => false,
+        'error' => $lastError,
+    ];
+}
+
+function resolve_reward_address_with_fallbacks(string $sidecarBase, string $address): ?string
+{
+    $address = normalize_addr($address);
+    $attempts = [
+        ['path' => '/auth/reward-address', 'payload' => ['address' => $address]],
+        ['path' => '/auth/reward-address', 'payload' => ['wallet_address' => $address]],
+        ['path' => '/auth/reward',         'payload' => ['address' => $address]],
+        ['path' => '/auth/reward',         'payload' => ['wallet_address' => $address]],
+    ];
+
+    foreach ($attempts as $a) {
+        try {
+            $resp = post_json($sidecarBase . $a['path'], $a['payload']);
+        } catch (Throwable) {
+            continue;
+        }
+        $body = $resp['body'];
+        if (!is_array($body)) continue;
+        if (($body['ok'] ?? null) === true || array_key_exists('reward_address', $body) || array_key_exists('rewardAddress', $body) || array_key_exists('stake_address', $body) || array_key_exists('stakeAddress', $body)) {
+            return first_string_value($body, ['reward_address', 'rewardAddress', 'stake_address', 'stakeAddress']);
+        }
+    }
+
+    return null;
+}
+
 function get_json(string $url, array $headers = []): array
 {
     $baseHeaders = ['Accept: application/json'];
@@ -200,20 +291,12 @@ $sidecarBase = rtrim((string) Config::get('SIDECAR_BASE_URL', 'http://localhost:
 
 try {
     // 1) Verify wallet signature (CIP-30/CIP-8) via sidecar auth route
-    $sigResp = post_json(
-        $sidecarBase . '/auth/verify-signature',
-        [
-            'signed_address' => $signedAddr,
-            'nonce'          => $nonce,
-            'signature'      => $sig,
-        ]
-    );
-    $sigBody = $sigResp['body'];
-    if (!is_array($sigBody) || !($sigBody['ok'] ?? false)) {
+    $sigCheck = verify_signature_with_fallbacks($sidecarBase, $signedAddr, $nonce, $sig);
+    if (!($sigCheck['ok'] ?? false)) {
         fail_json(502, 'sidecar signature verification failed');
     }
-    $signatureValid = (bool) ($sigBody['signature_valid'] ?? false);
-    $signedReward   = is_string($sigBody['reward_address'] ?? null) ? (string) $sigBody['reward_address'] : null;
+    $signatureValid = (bool) ($sigCheck['signature_valid'] ?? false);
+    $signedReward   = is_string($sigCheck['reward_address'] ?? null) ? (string) $sigCheck['reward_address'] : null;
 
     if (!$signatureValid) {
         echo json_encode([
@@ -254,20 +337,20 @@ try {
     }
 
     // 4) Derive current owner's reward address for stake-level comparison
-    $ownerReward = null;
-    if ($ownerAddr !== '') {
-        $ownerResp = post_json($sidecarBase . '/auth/reward-address', ['address' => $ownerAddr]);
-        $ownerBody = $ownerResp['body'];
-        if (is_array($ownerBody) && ($ownerBody['ok'] ?? false) && is_string($ownerBody['reward_address'] ?? null)) {
-            $ownerReward = (string) $ownerBody['reward_address'];
-        }
-    }
+    $ownerReward = ($ownerAddr !== '') ? resolve_reward_address_with_fallbacks($sidecarBase, $ownerAddr) : null;
 
-    $owns = (
+    $owns = false;
+    if (
         is_string($signedReward) && $signedReward !== '' &&
-        is_string($ownerReward)  && $ownerReward  !== '' &&
-        strtolower($signedReward) === strtolower($ownerReward)
-    );
+        is_string($ownerReward)  && $ownerReward  !== ''
+    ) {
+        $owns = strtolower($signedReward) === strtolower($ownerReward);
+    } elseif ($ownerAddr !== '' && $signedAddr !== '') {
+        // Compatibility fallback for older sidecar deployments where reward
+        // conversion route is unavailable. We only fall back to direct address
+        // equality after successful signature verification.
+        $owns = strtolower(normalize_addr($signedAddr)) === strtolower(normalize_addr($ownerAddr));
+    }
 
     echo json_encode([
         'ok'                    => true,

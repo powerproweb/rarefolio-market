@@ -1,7 +1,7 @@
 # RareFolio Marketplace — Project Status
 **Last updated:** 2026-04-26
 **Branch:** `main` (tracking `origin/main`)
-**Head commit:** `38dab6a`
+**Head commit:** `f83a63b`
 
 ---
 
@@ -12,9 +12,9 @@
   - `db/migrations/017_update_founders_ipfs_cids.sql`
   - `db/migrations/018_fix_founders_ipfs_cids.sql`
 - **Current focus:** Phase F mainnet readiness (operational cutover + irreversible policy decisions)
-- **Admin diagnostics verification complete (2026-04-26):** live authenticated dashboard check passed and rendered the new Network consistency diagnostics section.
-- **Diagnostics finding (open operational issue):** Founders collection reports `error` due to declared collection network (`preprod`) differing from runtime env (`mainnet`), plus Blockfrost declared-network verification failure (`403 Network token mismatch`).
-- **Task status:** Admin network consistency check implementation + live verification is closed; follow-up is to resolve underlying network/token drift.
+- **Admin diagnostics verification complete (2026-04-26):** live authenticated dashboard check passed and rendered the Network consistency diagnostics section.
+- **Diagnostics finding (resolved 2026-04-26):** app and sidecar envs are aligned to `BLOCKFROST_NETWORK=mainnet`; server-side key checks return `MAINNET_HTTP:200` and `PREPROD_HTTP:403` for both env files.
+- **Task status:** Network/token drift remediation is complete; current focus is remaining Phase F hardening items.
 
 ## Local repository state
 
@@ -25,10 +25,10 @@
 
 ## Current blockers (Phase F)
 
-1. Enable cPanel **Normal Shell** access (required for sidecar CI/CD flow)
-2. Generate a **fresh mainnet** `POLICY_MNEMONIC` (never reuse preprod key)
-3. Decide `POLICY_LOCK_SLOT` **before** first mainnet mint (irreversible policy behavior)
-4. Switch both envs to mainnet and run production hardening checks
+1. Repeat Phase D for mainnet completion (derive/record policy ID and fund wallet)
+2. Rotate webhook secret and `ADMIN_PASS`
+3. Remove `verify.php` / `tests` from production web root and block `src/`, `db/`, `sidecar/` from HTTP access
+4. Complete production checklist + final smoke checks before Phase G launch
 
 ---
 

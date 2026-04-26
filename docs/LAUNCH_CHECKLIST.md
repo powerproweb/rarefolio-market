@@ -1,17 +1,19 @@
 # RareFolio.io — Launch Checklist
 
-**Code baseline:** `eef4c38` (main)
-**Status:** Preprod minting complete (E.2) + Founders CID replacement complete (E.3). Current gate is Phase F mainnet hardening.
+**Code baseline:** `f83a63b` (main)
+**Status:** Preprod minting complete (E.2) + Founders CID replacement complete (E.3). Network/policy Phase F blockers were cleared on 2026-04-26; remaining Phase F work is production hardening.
 
 ---
 
-## Current execution snapshot (2026-04-25)
+## Current execution snapshot (2026-04-26)
 
 - [x] **E.2 complete:** all 8 Founders tokens minted + confirmed on preprod (`docs/FOUNDERS_MINT_LOG.md`)
 - [x] **E.3 complete:** CID replacement applied using `db/migrations/017_update_founders_ipfs_cids.sql` and `db/migrations/018_fix_founders_ipfs_cids.sql`
-- [ ] Enable cPanel **Normal Shell** access for sidecar CI/CD
-- [ ] Generate fresh mainnet `POLICY_MNEMONIC` (never reuse preprod key)
-- [ ] Finalize `POLICY_LOCK_SLOT` decision before first mainnet mint
+- [x] Enable cPanel **Normal Shell** access for sidecar CI/CD (verified via SSH)
+- [x] Generate fresh mainnet `POLICY_MNEMONIC` / `POLICY_MNEMONIC_FOUNDERS` in `sidecar/.env` (24-word validation passed)
+- [x] Finalize `POLICY_LOCK_SLOT` decision before first mainnet mint (current decision: no timelock for Founders; value intentionally blank)
+- [x] Resolve network mismatch: app + sidecar both set `BLOCKFROST_NETWORK=mainnet`
+- [x] Verify Blockfrost key/network alignment on server (`MAINNET_HTTP:200`, `PREPROD_HTTP:403` for both env files)
 
 ---
 
@@ -51,7 +53,7 @@
 ## PHASE C — Server Setup (preprod first, then mainnet)
 
 - [ ] SSH into the server; confirm PHP 8.1+ and Node 20+ are available
-- [ ] Upload / pull latest code from `main` (`eef4c38`)
+- [ ] Upload / pull latest code from `main` (`f83a63b`)
 - [ ] Copy and configure both env files:
   - `cp .env.example .env` → fill in `DB_*`, `BLOCKFROST_API_KEY` (preprod), `ADMIN_USER`, `ADMIN_PASS`, `CORS_ALLOWED_ORIGINS`, webhook vars
   - `cp sidecar/.env.example sidecar/.env` → fill in `BLOCKFROST_API_KEY` (preprod), `POLICY_MNEMONIC` (see Phase D), `PLATFORM_PAYOUT_ADDR`, `CREATOR_ROYALTY_ADDR`
@@ -118,13 +120,14 @@ Gate passed on 2026-04-24. See `docs/FOUNDERS_MINT_LOG.md` for tx hashes and ver
 ---
 
 ## PHASE F — Pre-launch Hardening
-- [ ] Enable cPanel shell access (`SSH Access` → `Manage Shell Access` → `Normal Shell`)
+- [x] Enable cPanel shell access (`SSH Access` → `Manage Shell Access` → `Normal Shell`)
 
-- [ ] Switch to mainnet: update `BLOCKFROST_NETWORK=mainnet` and `BLOCKFROST_API_KEY` (mainnet key) in both `.env` files
-- [ ] Generate a fresh mainnet `POLICY_MNEMONIC` (never reuse preprod keys)
+- [x] Switch to mainnet: update `BLOCKFROST_NETWORK=mainnet` and `BLOCKFROST_API_KEY` (mainnet key) in both `.env` files
+- [x] Generate a fresh mainnet `POLICY_MNEMONIC` (never reuse preprod keys)
+- [x] Finalize `POLICY_LOCK_SLOT` decision (no timelock for current Founders mainnet run; blank in `sidecar/.env` by design)
 - [ ] Repeat Phase D for mainnet (derive policy ID, fund wallet)
-- [ ] Confirm `APP_ENV=production` and `APP_DEBUG=false`
-- [ ] Confirm `CORS_ALLOWED_ORIGINS` contains only `https://rarefolio.io,https://www.rarefolio.io`
+- [x] Confirm `APP_ENV=production` and `APP_DEBUG=false`
+- [x] Confirm `CORS_ALLOWED_ORIGINS` contains only `https://rarefolio.io,https://www.rarefolio.io`
 - [ ] Rotate webhook secret: `php scripts/gen-webhook-secret.php` → update both sides
 - [ ] Generate a fresh `ADMIN_PASS` and update `.env`
 - [ ] Remove `verify.php` and `tests/` from production web root

@@ -49,6 +49,27 @@ function t(string $name, callable $fn): void {
 }
 
 function httpGet(string $url): array {
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER         => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_HTTPGET        => true,
+        ]);
+        $raw = curl_exec($ch);
+        if ($raw === false) {
+            curl_close($ch);
+            return ['status' => 0, 'body' => ''];
+        }
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $headerSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $body = substr((string) $raw, $headerSize);
+        curl_close($ch);
+        return ['status' => $code, 'body' => $body];
+    }
     $ctx = stream_context_create([
         'http' => [
             'method'        => 'GET',

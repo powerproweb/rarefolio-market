@@ -71,3 +71,14 @@ Verification per row: `GET /api/v1/tokens/{cnft_id}` must return
 ## Phase E.2 completion gate
 **GATE PASSED — 2026-04-24.** All 8 tokens minted and confirmed on preprod.
 Next: Phase E.3 — finalize artwork JPGs, pin to IPFS, replace `REPLACE_WITH_CID` in migrations.
+
+---
+
+## 2026-04-26 — Admin diagnostics live verification (post-mint ops)
+- Scope: verify the new `admin/index.php` Network consistency diagnostics block via authenticated live dashboard load.
+- Result: **PASS** (section rendered; runtime label and collection diagnostics row present).
+- Current severity snapshot: `ok=0`, `warn=0`, `error=1` (single Founders row).
+- Reported reasons:
+  - declared network (`preprod`) differs from runtime env (`mainnet`)
+  - declared-network tx verification failed with Blockfrost `403` (network token mismatch)
+- Task closure: diagnostics implementation and manual live verification complete; issue now tracked as environment/network consistency remediation.

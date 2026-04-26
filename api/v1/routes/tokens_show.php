@@ -32,27 +32,30 @@ try {
     $pdo = Db::pdo();
     $stmt = $pdo->prepare('
         SELECT
-            rarefolio_token_id,
-            policy_id,
-            asset_name_hex,
-            asset_name_utf8,
-            asset_fingerprint,
-            collection_slug,
-            title,
-            character_name,
-            edition,
-            artist,
-            mint_tx_hash,
-            minted_at,
-            current_owner_wallet,
-            custody_status,
-            listing_status,
-            primary_sale_status,
-            secondary_eligible,
-            cip25_json,
-            updated_at
-        FROM qd_tokens
-        WHERE rarefolio_token_id = :id
+            t.rarefolio_token_id,
+            t.policy_id,
+            t.asset_name_hex,
+            t.asset_name_utf8,
+            t.asset_fingerprint,
+            t.collection_slug,
+            c.network AS collection_network,
+            t.title,
+            t.character_name,
+            t.edition,
+            t.artist,
+            t.mint_tx_hash,
+            t.minted_at,
+            t.current_owner_wallet,
+            t.custody_status,
+            t.listing_status,
+            t.primary_sale_status,
+            t.secondary_eligible,
+            t.cip25_json,
+            t.updated_at
+        FROM qd_tokens t
+        LEFT JOIN qd_collections c
+            ON c.slug = t.collection_slug
+        WHERE t.rarefolio_token_id = :id
         LIMIT 1
     ');
     $stmt->execute([':id' => $cnftId]);
@@ -85,7 +88,7 @@ if (!empty($row['cip25_json'])) {
     }
 }
 
-$network = (string) Config::get('BLOCKFROST_NETWORK', 'preprod');
+$network = (string) ($row['collection_network'] ?? Config::get('BLOCKFROST_NETWORK', 'preprod'));
 
 // Redact wallet to first/last 6 chars — full ownership is not a public field.
 $ownerDisplay = null;

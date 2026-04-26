@@ -72,12 +72,13 @@ try {
         if ($bar !== null) {
             $where .= "
                 AND (
-                    JSON_UNQUOTE(JSON_EXTRACT(t.cip25_json, '$.bar_serial'))          = :bar
-                    OR JSON_UNQUOTE(JSON_EXTRACT(t.cip25_json, '$.attributes.bar_serial')) = :bar
+                    JSON_UNQUOTE(JSON_EXTRACT(t.cip25_json, '$.bar_serial'))          = :bar_1
+                    OR JSON_UNQUOTE(JSON_EXTRACT(t.cip25_json, '$.attributes.bar_serial')) = :bar_2
                     OR t.collection_slug LIKE :bar_like
                 )
             ";
-            $binds[':bar']      = $bar;
+            $binds[':bar_1']    = $bar;
+            $binds[':bar_2']    = $bar;
             $binds[':bar_like'] = '%' . $bar . '%';
         }
 
@@ -137,12 +138,13 @@ try {
         if ($bar !== null) {
             $where .= "
                 AND (
-                    JSON_UNQUOTE(JSON_EXTRACT(cip25_json, '$.bar_serial'))               = :bar
-                    OR JSON_UNQUOTE(JSON_EXTRACT(cip25_json, '$.attributes.bar_serial')) = :bar
+                    JSON_UNQUOTE(JSON_EXTRACT(cip25_json, '$.bar_serial'))               = :bar_1
+                    OR JSON_UNQUOTE(JSON_EXTRACT(cip25_json, '$.attributes.bar_serial')) = :bar_2
                     OR collection_slug LIKE :bar_like
                 )
             ";
-            $binds[':bar']      = $bar;
+            $binds[':bar_1']    = $bar;
+            $binds[':bar_2']    = $bar;
             $binds[':bar_like'] = '%' . $bar . '%';
         }
 

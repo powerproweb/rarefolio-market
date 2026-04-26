@@ -88,7 +88,14 @@ if (!empty($row['cip25_json'])) {
     }
 }
 
-$network = (string) ($row['collection_network'] ?? Config::get('BLOCKFROST_NETWORK', 'preprod'));
+// Runtime env is the source of truth for active network.
+// Collection-declared network is retained for diagnostics/admin drift checks.
+$runtimeNetwork = strtolower((string) Config::get('BLOCKFROST_NETWORK', 'preprod'));
+if (in_array($runtimeNetwork, ['mainnet', 'preprod', 'preview'], true)) {
+    $network = $runtimeNetwork;
+} else {
+    $network = (string) ($row['collection_network'] ?? 'preprod');
+}
 
 // Redact wallet to first/last 6 chars — full ownership is not a public field.
 $ownerDisplay = null;

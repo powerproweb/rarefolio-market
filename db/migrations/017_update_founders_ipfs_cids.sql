@@ -6,7 +6,6 @@
 --
 -- Updates both:
 --   1. qd_tokens.cip25_json  — the stored CIP-25 metadata (image field)
---   2. qd_tokens.image_ipfs_cid — the extracted CID column (used by admin UI)
 --
 -- Safe to re-run: JSON_SET is idempotent.
 -- Run: php db/migrate.php  (migration runner applies in numeric order)
@@ -22,7 +21,6 @@ SET
             '.jpg'
         )
     ),
-    image_ipfs_cid = 'bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy',
     updated_at     = NOW()
 WHERE
     collection_slug = 'silverbar-01-founders'

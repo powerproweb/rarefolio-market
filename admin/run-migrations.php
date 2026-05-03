@@ -14,6 +14,7 @@
  * Generate a secret: php scripts/gen-webhook-secret.php
  */
 declare(strict_types=1);
+header('Content-Type: application/json');
 
 // ---- Auth: constant-time compare against DEPLOY_WEBHOOK_SECRET ----
 $envFile = __DIR__ . '/../.env';
@@ -54,7 +55,6 @@ try {
 $output = ob_get_clean();
 
 http_response_code($exitCode === 0 ? 200 : 500);
-header('Content-Type: application/json');
 echo json_encode([
     'ok'     => $exitCode === 0,
     'output' => $output,

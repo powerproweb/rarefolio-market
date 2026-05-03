@@ -99,11 +99,22 @@ jobs:
       #  DEPLOY_WEBHOOK_SECRET. Safe to skip if secret not yet configured.
       - name: Run DB migrations
         run: |
-          RESPONSE=$(curl -fsS \
+          if [ -z "${{ secrets.DEPLOY_WEBHOOK_SECRET }}" ]; then
+            echo "DEPLOY_WEBHOOK_SECRET not configured; skipping migration trigger"
+            exit 0
+          fi
+          HTTP_CODE=$(curl -sS \
+            -o /tmp/migration_response.json \
+            -w "%{http_code}" \
             -X POST \
             -H "X-Deploy-Secret: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}" \
-            "https://market.rarefolio.io/admin/run-migrations.php" 2>&1) || true
-          echo "Migration response: $RESPONSE"
+            "https://market.rarefolio.io/admin/run-migrations.php")
+          echo "Migration HTTP status: $HTTP_CODE"
+          cat /tmp/migration_response.json
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Migration trigger failed"
+            exit 1
+          fi
 
       # ---- 3. Health check via public API ----------------------------------
       - name: Health check

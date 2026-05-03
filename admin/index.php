@@ -202,12 +202,39 @@ if (tableExists($pdo, 'qd_collections') && tableExists($pdo, 'qd_tokens')) {
 
 $sidecar = new SidecarClient();
 $sidecarAlive = $sidecar->health();
+$mainSiteAdminBase = 'https://rarefolio.io/admin';
 
 $pageTitle = 'Admin overview — RareFolio';
 require __DIR__ . '/includes/header.php';
 ?>
 
 <h1>Overview</h1>
+
+<h2>Launchpad</h2>
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap:1rem; margin-bottom:1.5rem;">
+    <div class="rf-code" style="white-space:normal">
+        <div class="rf-mono">MARKET ADMIN</div>
+        <p style="margin:0.6rem 0 0.9rem; color:var(--rf-muted);">
+            Marketplace operations: mint queue, orders, grants, and on-chain sync tools.
+        </p>
+        <div class="rf-toolbar" style="margin:0; flex-wrap:wrap;">
+            <a class="rf-btn" href="/admin/orders.php">Orders</a>
+            <a class="rf-btn rf-btn-ghost" href="/admin/mint.php">Mint queue</a>
+            <a class="rf-btn rf-btn-ghost" href="/admin/asset-lookup.php">Asset lookup</a>
+        </div>
+    </div>
+    <div class="rf-code" style="white-space:normal">
+        <div class="rf-mono">MAIN-SITE ADMIN</div>
+        <p style="margin:0.6rem 0 0.9rem; color:var(--rf-muted);">
+            Jump to rarefolio.io admin hub for Story Editor and Wallet Operations.
+        </p>
+        <div class="rf-toolbar" style="margin:0; flex-wrap:wrap;">
+            <a class="rf-btn" href="<?= h($mainSiteAdminBase) ?>/index.php" target="_blank" rel="noopener">Admin home</a>
+            <a class="rf-btn rf-btn-ghost" href="<?= h($mainSiteAdminBase) ?>/story-editor.php" target="_blank" rel="noopener">Story editor</a>
+            <a class="rf-btn rf-btn-ghost" href="<?= h($mainSiteAdminBase) ?>/wallet-dashboard.php" target="_blank" rel="noopener">Wallet ops</a>
+        </div>
+    </div>
+</div>
 
 <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap:1rem; margin-bottom:2rem;">
     <div class="rf-code" style="white-space:normal">

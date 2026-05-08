@@ -77,9 +77,12 @@ jobs:
         run: |
           lftp -c "
             set sftp:auto-confirm yes
-            set sftp:connect-program 'ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -p ${{ secrets.SFTP_PORT }} -q'
-            set net:timeout 60
-            set net:max-retries 3
+            set cmd:fail-exit yes
+            set sftp:connect-program 'ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=20 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -p ${{ secrets.SFTP_PORT }}'
+            set net:timeout 45
+            set net:max-retries 10
+            set net:reconnect-interval-base 5
+            set net:reconnect-interval-max 20
             open -u \"${{ secrets.SFTP_USER }},\" sftp://${{ secrets.SFTP_HOST }}
             mirror --reverse --verbose --only-newer \
               --exclude-glob .git/ \

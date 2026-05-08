@@ -54,10 +54,20 @@ jobs:
       - name: Install SSH key
         run: |
           mkdir -p ~/.ssh
-          # Decode base64-encoded key — avoids CRLF/echo corruption
-          echo "${{ secrets.SFTP_KEY }}" | base64 -d > ~/.ssh/deploy_key
+          if [ -z "${{ secrets.SFTP_KEY }}" ]; then
+            echo "SFTP_KEY secret is missing"
+            exit 1
+          fi
+          # Prefer base64 decode, fall back to raw PEM/OpenSSH key text.
+          if echo "${{ secrets.SFTP_KEY }}" | base64 -d > ~/.ssh/deploy_key 2>/dev/null; then
+            echo "Loaded SFTP key from base64 secret"
+          else
+            printf '%s\n' "${{ secrets.SFTP_KEY }}" > ~/.ssh/deploy_key
+            echo "Loaded SFTP key as raw text"
+          fi
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p ${{ secrets.SFTP_PORT }} ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts
+          # Non-fatal: lftp uses StrictHostKeyChecking=no for this deploy channel.
+          ssh-keyscan -p ${{ secrets.SFTP_PORT }} ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts || true
 
       # ---- 1. Sync PHP application files via lftp SFTP --------------------
       - name: Install lftp

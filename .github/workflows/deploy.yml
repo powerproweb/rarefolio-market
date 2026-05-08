@@ -54,20 +54,53 @@ jobs:
       - name: Install SSH key
         run: |
           mkdir -p ~/.ssh
-          if [ -z "${{ secrets.SFTP_KEY }}" ]; then
+          KEY_CONTENT="${{ secrets.SFTP_KEY }}"
+          if [ -z "$KEY_CONTENT" ]; then
             echo "SFTP_KEY secret is missing"
             exit 1
           fi
-          # Prefer base64 decode, fall back to raw PEM/OpenSSH key text.
-          if echo "${{ secrets.SFTP_KEY }}" | base64 -d > ~/.ssh/deploy_key 2>/dev/null; then
+          # Prefer base64 decode, then fall back to text key content.
+          if printf '%s' "$KEY_CONTENT" | base64 -d > ~/.ssh/deploy_key 2>/dev/null && grep -q "PRIVATE KEY" ~/.ssh/deploy_key; then
             echo "Loaded SFTP key from base64 secret"
           else
-            printf '%s\n' "${{ secrets.SFTP_KEY }}" > ~/.ssh/deploy_key
+            printf '%b' "$KEY_CONTENT" | tr -d '\r' > ~/.ssh/deploy_key
             echo "Loaded SFTP key as raw text"
           fi
           chmod 600 ~/.ssh/deploy_key
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+            echo "SFTP_KEY is not a valid private key. Store it as base64 private key content or as a full multiline key."
+            exit 1
+          fi
           # Non-fatal: lftp uses StrictHostKeyChecking=no for this deploy channel.
-          ssh-keyscan -p ${{ secrets.SFTP_PORT }} ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts || true
+          ssh-keyscan -p 22 ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts || true
+
+      - name: Resolve remote deploy directory
+        id: deploy_target
+        run: |
+          REMOTE_DIR="${{ secrets.MARKET_REMOTE_DIR }}"
+          if [ -z "$REMOTE_DIR" ]; then
+            REMOTE_DIR="${{ secrets.SFTP_REMOTE_DIR }}"
+          fi
+          if [ -z "$REMOTE_DIR" ]; then
+            echo "Missing remote directory secret. Set MARKET_REMOTE_DIR or SFTP_REMOTE_DIR."
+            exit 1
+          fi
+          echo "remote_dir=$REMOTE_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Probe SFTP authentication
+        run: |
+          if ! timeout 30s sftp \
+            -oBatchMode=yes \
+            -oStrictHostKeyChecking=no \
+            -oConnectTimeout=20 \
+            -i ~/.ssh/deploy_key \
+            -P 22 \
+            "${{ secrets.SFTP_USER }}@${{ secrets.SFTP_HOST }}" \
+            <<< $'bye' > /tmp/sftp_probe.log 2>&1; then
+            cat /tmp/sftp_probe.log
+            echo "SFTP probe failed. Verify SFTP_USER, SFTP_KEY, and BlueHost SSH/SFTP access."
+            exit 1
+          fi
 
       # ---- 1. Sync PHP application files via lftp SFTP --------------------
       - name: Install lftp
@@ -78,9 +111,9 @@ jobs:
           lftp -c "
             set sftp:auto-confirm yes
             set cmd:fail-exit yes
-            set sftp:connect-program 'ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=20 -o ConnectionAttempts=3 -o ServerAliveInterval=15 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -p ${{ secrets.SFTP_PORT }}'
-            set net:timeout 45
-            set net:max-retries 10
+            set sftp:connect-program 'ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=20 -o ConnectionAttempts=3 -p 22 -q'
+            set net:timeout 60
+            set net:max-retries 3
             set net:reconnect-interval-base 5
             set net:reconnect-interval-max 20
             open -u \"${{ secrets.SFTP_USER }},\" sftp://${{ secrets.SFTP_HOST }}
@@ -103,7 +136,7 @@ jobs:
               --exclude-glob 'sidecar/node_modules/' \
               --exclude-glob 'sidecar/dist/' \
               --exclude-glob '*.log' \
-              ./ ${{ secrets.MARKET_REMOTE_DIR }}/
+              ./ ${{ steps.deploy_target.outputs.remote_dir }}/
             bye
           "
 

@@ -15,6 +15,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $port = (int) (getenv('TEST_PORT') ?: 18766);
 $externalBase = trim((string) (getenv('E2E_BASE_URL') ?: ''));
+$insecureTls = trim((string) (getenv('E2E_INSECURE_TLS') ?: '')) === '1';
 
 $proc = null;
 $pipes = [];
@@ -62,6 +63,7 @@ function t(string $name, callable $fn): void
 
 function httpReq(string $method, string $url, ?array $jsonBody = null): array
 {
+    global $insecureTls;
     $method = strtoupper($method);
 
     if (function_exists('curl_init')) {
@@ -83,6 +85,10 @@ function httpReq(string $method, string $url, ?array $jsonBody = null): array
             CURLOPT_HTTPHEADER     => $headers,
             CURLOPT_POSTFIELDS     => $payload,
         ]);
+        if ($insecureTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
         $raw = curl_exec($ch);
         if ($raw === false) {
             $err = curl_error($ch);
@@ -111,6 +117,11 @@ function httpReq(string $method, string $url, ?array $jsonBody = null): array
             'timeout'       => 12,
             'header'        => implode("\r\n", $headers),
             'content'       => $content,
+        ],
+        'ssl' => [
+            'verify_peer'      => !$insecureTls,
+            'verify_peer_name' => !$insecureTls,
+            'allow_self_signed'=> $insecureTls,
         ],
     ]);
     $bodyRaw = @file_get_contents($url, false, $ctx);

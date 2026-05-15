@@ -39,6 +39,7 @@ try {
             t.asset_fingerprint,
             t.collection_slug,
             c.network AS collection_network,
+            c.primary_sale_price_lovelace AS collection_price,
             t.title,
             t.character_name,
             t.edition,
@@ -106,6 +107,12 @@ if (is_string($w) && strlen($w) > 14) {
     $ownerDisplay = $w;
 }
 
+$collectionPrice = (int) ($row['collection_price'] ?? 0);
+$isOnDemand = $row['primary_sale_status'] === 'unminted'
+    && in_array((string) $row['listing_status'], ['listed_fixed', 'listed_auction', 'offer_only'], true)
+    && $collectionPrice > 0;
+$mintMode = $isOnDemand ? 'on_demand' : 'pre_minted';
+
 Response::ok([
     'cnft_id'          => $row['rarefolio_token_id'],
     'title'            => $row['title'],
@@ -126,6 +133,7 @@ Response::ok([
     'status'           => [
         'primary_sale'      => $row['primary_sale_status'],
         'listing'           => $row['listing_status'],
+        'mint_mode'         => $mintMode,
         'custody'           => $row['custody_status'],
         'secondary_eligible'=> (bool) ((int) $row['secondary_eligible']),
     ],

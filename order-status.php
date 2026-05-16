@@ -11,8 +11,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/src/Config.php';
 require_once __DIR__ . '/src/Db.php';
+require_once __DIR__ . '/src/Cip25/Reader.php';
 
 use RareFolio\Config;
+use RareFolio\Cip25\Reader;
 use RareFolio\Db;
 
 Config::load(__DIR__ . '/.env');
@@ -27,7 +29,7 @@ if ($orderId > 0) {
 
         $oStmt = $pdo->prepare(
             'SELECT o.*, t.title, t.character_name, t.edition, t.collection_slug,
-                    t.cip25_json, t.artist,
+                    t.cip25_json, t.artist, t.policy_id, t.asset_name_utf8,
                     c.name AS collection_name
                FROM qd_orders o
                LEFT JOIN qd_tokens t ON t.rarefolio_token_id = o.rarefolio_token_id
@@ -63,12 +65,18 @@ function ipfsGateway(string $uri): string
 $imgUri   = '';
 $descText = '';
 if ($order && !empty($order['cip25_json'])) {
-    $cip25   = json_decode($order['cip25_json'], true) ?: [];
-    $rawImg  = $cip25['image'] ?? '';
-    if (is_array($rawImg)) $rawImg = implode('', $rawImg);
-    $imgUri  = $rawImg ? ipfsGateway($rawImg) : '';
-    $rawDesc = $cip25['description'] ?? '';
-    $descText = is_array($rawDesc) ? implode(' ', $rawDesc) : (string) $rawDesc;
+    $cip25 = Reader::decode((string)$order['cip25_json']);
+    $rawImg = Reader::image(
+        $cip25,
+        (string)($order['policy_id'] ?? ''),
+        (string)($order['asset_name_utf8'] ?? '')
+    );
+    $imgUri = $rawImg !== '' ? ipfsGateway($rawImg) : '';
+    $descText = Reader::description(
+        $cip25,
+        (string)($order['policy_id'] ?? ''),
+        (string)($order['asset_name_utf8'] ?? '')
+    );
 }
 
 // Status timeline steps

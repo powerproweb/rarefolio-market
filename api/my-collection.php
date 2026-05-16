@@ -22,10 +22,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/Db.php';
+require_once __DIR__ . '/../src/Cip25/Reader.php';
 require_once __DIR__ . '/../src/Api/Cors.php';
 require_once __DIR__ . '/../src/Api/RateLimit.php';
 
 use RareFolio\Config;
+use RareFolio\Cip25\Reader;
 use RareFolio\Db;
 use RareFolio\Api\Cors;
 use RareFolio\Api\RateLimit;
@@ -73,7 +75,7 @@ try {
         SELECT t.rarefolio_token_id, t.title, t.character_name, t.edition,
                t.collection_slug, t.cip25_json, t.mint_tx_hash, t.minted_at,
                t.primary_sale_status, t.asset_fingerprint,
-               t.policy_id, t.asset_name_hex, t.current_owner_wallet,
+               t.policy_id, t.asset_name_hex, t.asset_name_utf8, t.current_owner_wallet,
                c.name AS collection_name
           FROM qd_tokens t
           LEFT JOIN qd_collections c ON c.slug = t.collection_slug
@@ -88,7 +90,7 @@ try {
     $oStmt = $pdo->prepare("
         SELECT o.id AS order_id, o.rarefolio_token_id, o.buyer_addr,
                o.sale_amount_lovelace, o.order_tx_hash, o.settled_at,
-               t.title, t.character_name, t.edition, t.cip25_json,
+               t.title, t.character_name, t.edition, t.cip25_json, t.policy_id, t.asset_name_utf8,
                t.collection_slug, c.name AS collection_name
           FROM qd_orders o
           LEFT JOIN qd_tokens t ON t.rarefolio_token_id = o.rarefolio_token_id
@@ -100,21 +102,27 @@ try {
     $oStmt->execute($addresses);
     $rawOrders = $oStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Format token data
-    function extractImg(mixed $v): string {
-        if (is_array($v)) $v = implode('', $v);
-        return is_string($v) ? $v : '';
+    function ipfsGateway(string $uri): string
+    {
+        if (str_starts_with($uri, 'ipfs://')) {
+            return 'https://gateway.pinata.cloud/ipfs/' . substr($uri, 7);
+        }
+        return $uri;
     }
 
     function formatToken(array $row): array {
-        $cip25 = json_decode($row['cip25_json'] ?? '{}', true) ?: [];
-        $rawImg = $cip25['image'] ?? '';
-        $img = extractImg($rawImg);
-        if (str_starts_with($img, 'ipfs://')) {
-            $img = 'https://gateway.pinata.cloud/ipfs/' . substr($img, 7);
-        }
-        $desc = $cip25['description'] ?? '';
-        if (is_array($desc)) $desc = implode(' ', $desc);
+        $cip25 = Reader::decode((string)($row['cip25_json'] ?? '{}'));
+        $img = Reader::image(
+            $cip25,
+            (string)($row['policy_id'] ?? ''),
+            (string)($row['asset_name_utf8'] ?? '')
+        );
+        $img = $img !== '' ? ipfsGateway($img) : '';
+        $desc = Reader::description(
+            $cip25,
+            (string)($row['policy_id'] ?? ''),
+            (string)($row['asset_name_utf8'] ?? '')
+        );
         return [
             'cnft_id'         => $row['rarefolio_token_id'],
             'title'           => $row['title'] ?? '',
@@ -139,12 +147,13 @@ try {
     $orders = [];
     foreach ($rawOrders as $o) {
         if (in_array($o['rarefolio_token_id'], $foundIds, true)) continue;
-        $cip25 = json_decode($o['cip25_json'] ?? '{}', true) ?: [];
-        $rawImg = $cip25['image'] ?? '';
-        $img = extractImg($rawImg);
-        if (str_starts_with($img, 'ipfs://')) {
-            $img = 'https://gateway.pinata.cloud/ipfs/' . substr($img, 7);
-        }
+        $cip25 = Reader::decode((string)($o['cip25_json'] ?? '{}'));
+        $img = Reader::image(
+            $cip25,
+            (string)($o['policy_id'] ?? ''),
+            (string)($o['asset_name_utf8'] ?? '')
+        );
+        $img = $img !== '' ? ipfsGateway($img) : '';
         $orders[] = [
             'order_id'       => (int)$o['order_id'],
             'cnft_id'        => $o['rarefolio_token_id'],

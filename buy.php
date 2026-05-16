@@ -13,8 +13,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/src/Config.php';
 require_once __DIR__ . '/src/Db.php';
+require_once __DIR__ . '/src/Cip25/Reader.php';
 
 use RareFolio\Config;
+use RareFolio\Cip25\Reader;
 use RareFolio\Db;
 
 Config::load(__DIR__ . '/.env');
@@ -88,23 +90,24 @@ function ipfsGateway(string $uri): string
     return $uri;
 }
 
-// Extract image from cip25_json (may be array after sanitize)
-function extractImage(mixed $val): string
-{
-    if (is_array($val)) $val = implode('', $val);
-    return is_string($val) ? $val : '';
-}
 
 $cip25    = [];
 $imgUri   = '';
 $descText = '';
 
 if ($token) {
-    $cip25    = json_decode((string)($token['cip25_json'] ?? '{}'), true) ?: [];
-    $rawImg   = $cip25['image'] ?? '';
-    $imgUri   = ipfsGateway(extractImage($rawImg));
-    $rawDesc  = $cip25['description'] ?? '';
-    $descText = is_array($rawDesc) ? implode(' ', $rawDesc) : (string)$rawDesc;
+    $cip25 = Reader::decode((string)($token['cip25_json'] ?? '{}'));
+    $rawImg = Reader::image(
+        $cip25,
+        (string)($token['policy_id'] ?? ''),
+        (string)($token['asset_name_utf8'] ?? '')
+    );
+    $imgUri = $rawImg !== '' ? ipfsGateway($rawImg) : '';
+    $descText = Reader::description(
+        $cip25,
+        (string)($token['policy_id'] ?? ''),
+        (string)($token['asset_name_utf8'] ?? '')
+    );
 }
 
 $isSold = $token && in_array($token['primary_sale_status'], ['sold', 'sold_pre_marketplace'], true);

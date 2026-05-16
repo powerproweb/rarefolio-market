@@ -32,16 +32,23 @@ final class Reader
         $normalized = trim($uri);
         $slug = trim((string) $collectionSlug);
         $token = trim((string) $tokenId);
+        $isFoundersCollection = $slug !== '' && str_contains(strtolower($slug), 'founders');
+        $isFoundersToken = self::isFoundersTokenId($token);
+        $useFoundersFallback = $isFoundersCollection || $isFoundersToken;
 
-        if ($normalized !== '' && str_contains($normalized, 'REPLACE_WITH_CID') && $slug === 'silverbar-01-founders') {
+        if ($normalized !== '' && str_contains($normalized, 'REPLACE_WITH_CID') && $useFoundersFallback) {
             $normalized = str_replace('REPLACE_WITH_CID', self::FOUNDERS_BLOCK88_IMAGE_CID, $normalized);
         }
-
-        if ($normalized === '' && $slug === 'silverbar-01-founders' && $token !== '') {
+        if ($normalized === '' && $isFoundersToken) {
             $normalized = 'ipfs://' . self::FOUNDERS_BLOCK88_IMAGE_CID . '/' . $token . '.jpg';
         }
 
         return $normalized;
+    }
+
+    private static function isFoundersTokenId(string $tokenId): bool
+    {
+        return preg_match('/^qd-silver-00007(0[5-9]|1[0-2])$/', $tokenId) === 1;
     }
 
     public static function field(

@@ -112,12 +112,17 @@ try {
 
     function formatToken(array $row): array {
         $cip25 = Reader::decode((string)($row['cip25_json'] ?? '{}'));
-        $img = Reader::image(
+        $rawImg = Reader::image(
             $cip25,
             (string)($row['policy_id'] ?? ''),
             (string)($row['asset_name_utf8'] ?? '')
         );
-        $img = $img !== '' ? ipfsGateway($img) : '';
+        $rawImg = Reader::normalizeImageUri(
+            $rawImg,
+            (string)($row['collection_slug'] ?? ''),
+            (string)($row['rarefolio_token_id'] ?? '')
+        );
+        $img = $rawImg !== '' ? ipfsGateway($rawImg) : '';
         $desc = Reader::description(
             $cip25,
             (string)($row['policy_id'] ?? ''),
@@ -148,12 +153,17 @@ try {
     foreach ($rawOrders as $o) {
         if (in_array($o['rarefolio_token_id'], $foundIds, true)) continue;
         $cip25 = Reader::decode((string)($o['cip25_json'] ?? '{}'));
-        $img = Reader::image(
+        $rawImg = Reader::image(
             $cip25,
             (string)($o['policy_id'] ?? ''),
             (string)($o['asset_name_utf8'] ?? '')
         );
-        $img = $img !== '' ? ipfsGateway($img) : '';
+        $rawImg = Reader::normalizeImageUri(
+            $rawImg,
+            (string)($o['collection_slug'] ?? ''),
+            (string)($o['rarefolio_token_id'] ?? '')
+        );
+        $img = $rawImg !== '' ? ipfsGateway($rawImg) : '';
         $orders[] = [
             'order_id'       => (int)$o['order_id'],
             'cnft_id'        => $o['rarefolio_token_id'],

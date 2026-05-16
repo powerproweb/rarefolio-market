@@ -5,6 +5,7 @@ namespace RareFolio\Cip25;
 
 final class Reader
 {
+    private const FOUNDERS_BLOCK88_IMAGE_CID = 'bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy';
     /**
      * @return array<string,mixed>
      */
@@ -22,6 +23,25 @@ final class Reader
     public static function description(array $metadata, ?string $policyId = null, ?string $assetNameUtf8 = null): string
     {
         return self::field($metadata, 'description', $policyId, $assetNameUtf8, ' ');
+    }
+    public static function normalizeImageUri(
+        string $uri,
+        ?string $collectionSlug = null,
+        ?string $tokenId = null
+    ): string {
+        $normalized = trim($uri);
+        $slug = trim((string) $collectionSlug);
+        $token = trim((string) $tokenId);
+
+        if ($normalized !== '' && str_contains($normalized, 'REPLACE_WITH_CID') && $slug === 'silverbar-01-founders') {
+            $normalized = str_replace('REPLACE_WITH_CID', self::FOUNDERS_BLOCK88_IMAGE_CID, $normalized);
+        }
+
+        if ($normalized === '' && $slug === 'silverbar-01-founders' && $token !== '') {
+            $normalized = 'ipfs://' . self::FOUNDERS_BLOCK88_IMAGE_CID . '/' . $token . '.jpg';
+        }
+
+        return $normalized;
     }
 
     public static function field(

@@ -71,6 +71,11 @@ if ($order && !empty($order['cip25_json'])) {
         (string)($order['policy_id'] ?? ''),
         (string)($order['asset_name_utf8'] ?? '')
     );
+    $rawImg = Reader::normalizeImageUri(
+        $rawImg,
+        (string)($order['collection_slug'] ?? ''),
+        (string)($order['rarefolio_token_id'] ?? '')
+    );
     $imgUri = $rawImg !== '' ? ipfsGateway($rawImg) : '';
     $descText = Reader::description(
         $cip25,

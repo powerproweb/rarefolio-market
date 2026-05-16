@@ -102,6 +102,11 @@ if ($token) {
         (string)($token['policy_id'] ?? ''),
         (string)($token['asset_name_utf8'] ?? '')
     );
+    $rawImg = Reader::normalizeImageUri(
+        $rawImg,
+        (string)($token['collection_slug'] ?? ''),
+        (string)($token['rarefolio_token_id'] ?? $tokenId)
+    );
     $imgUri = $rawImg !== '' ? ipfsGateway($rawImg) : '';
     $descText = Reader::description(
         $cip25,

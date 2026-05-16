@@ -19,6 +19,7 @@ $insecureTls = trim((string) (getenv('E2E_INSECURE_TLS') ?: '')) === '1';
 
 $proc = null;
 $pipes = [];
+$healthDbState = 'unknown';
 
 if ($externalBase !== '') {
     $base = rtrim($externalBase, '/');
@@ -46,25 +47,53 @@ if ($externalBase !== '') {
 }
 $pass = 0;
 $fail = 0;
+$skip = 0;
+
+final class SkipTestException extends RuntimeException {}
 
 function t(string $name, callable $fn): void
 {
-    global $pass, $fail;
+    global $pass, $fail, $skip;
     echo "• $name ... ";
     try {
         $fn();
         $pass++;
         echo "ok\n";
+    } catch (SkipTestException $e) {
+        $skip++;
+        echo "skip: " . $e->getMessage() . "\n";
     } catch (Throwable $e) {
         $fail++;
         echo "FAIL — " . $e->getMessage() . "\n";
     }
 }
 
+function stringSnippet(string $text, int $maxLen = 180): string
+{
+    if ($maxLen <= 0) return '';
+    if (function_exists('mb_substr')) {
+        return (string) mb_substr($text, 0, $maxLen);
+    }
+    return substr($text, 0, $maxLen);
+}
+
+function requireDbReadyForLocal(string $context): void
+{
+    global $externalBase, $healthDbState;
+    if ($externalBase !== '') return;
+    if ($healthDbState === 'ok') return;
+    throw new SkipTestException($context . ' requires local DB readiness, health.db=' . $healthDbState);
+}
+
 function httpReq(string $method, string $url, ?array $jsonBody = null): array
 {
     global $insecureTls;
     $method = strtoupper($method);
+    $isHttps = str_starts_with(strtolower($url), 'https://');
+
+    if ($isHttps && !function_exists('curl_init') && !extension_loaded('openssl')) {
+        return httpReqViaCliCurl($method, $url, $jsonBody, $insecureTls);
+    }
 
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
@@ -135,13 +164,102 @@ function httpReq(string $method, string $url, ?array $jsonBody = null): array
     }
     $bodyText = is_string($bodyRaw) ? $bodyRaw : '';
     $body = json_decode($bodyText, true);
-    return ['status' => $code, 'body' => $body, 'raw' => $bodyText];
+    $resp = ['status' => $code, 'body' => $body, 'raw' => $bodyText];
+
+    if ($isHttps && $code === 0) {
+        $fallback = httpReqViaCliCurl($method, $url, $jsonBody, $insecureTls);
+        if (($fallback['status'] ?? 0) > 0) {
+            return $fallback;
+        }
+    }
+
+    return $resp;
+}
+
+function httpReqViaCliCurl(string $method, string $url, ?array $jsonBody = null, bool $insecureTls = false): array
+{
+    $curlBin = PHP_OS_FAMILY === 'Windows' ? 'curl.exe' : 'curl';
+    $writeOut = "\n__CURL_STATUS__:%{http_code}";
+    $args = [
+        $curlBin,
+        '--silent',
+        '--show-error',
+        '--request', strtoupper($method),
+        '--url', $url,
+        '--connect-timeout', '8',
+        '--max-time', '12',
+        '--write-out', $writeOut,
+    ];
+    if ($insecureTls) {
+        $args[] = '--insecure';
+    }
+    $args[] = '--header';
+    $args[] = 'Accept: application/json';
+    if ($jsonBody !== null) {
+        $payload = json_encode($jsonBody, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '';
+        $args[] = '--header';
+        $args[] = 'Content-Type: application/json';
+        $args[] = '--data';
+        $args[] = $payload;
+    }
+
+    $desc = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $options = PHP_OS_FAMILY === 'Windows' ? ['bypass_shell' => true] : [];
+    $proc = @proc_open($args, $desc, $pipes, null, null, $options);
+    if (!is_resource($proc)) {
+        return [
+            'status' => 0,
+            'body' => null,
+            'raw' => '',
+            'error' => 'curl fallback failed to start process',
+        ];
+    }
+
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exitCode = proc_close($proc);
+    $raw = is_string($stdout) ? $stdout : '';
+    $stderrText = is_string($stderr) ? trim($stderr) : '';
+
+    if (!preg_match('/__CURL_STATUS__:(\d{3})\s*$/', $raw, $m)) {
+        return [
+            'status' => 0,
+            'body' => null,
+            'raw' => $stderrText !== '' ? trim($raw . "\n" . $stderrText) : trim($raw),
+            'error' => 'curl fallback did not return HTTP status (exit=' . $exitCode . ($stderrText !== '' ? ', stderr=' . $stderrText : '') . ')',
+        ];
+    }
+
+    $status = (int) $m[1];
+    $bodyRaw = preg_replace('/\n__CURL_STATUS__:\d{3}\s*$/', '', $raw);
+    $body = is_string($bodyRaw) ? json_decode($bodyRaw, true) : null;
+
+    return [
+        'status' => $status,
+        'body' => is_array($body) ? $body : null,
+        'raw' => (string) $bodyRaw,
+        'curl_exit' => $exitCode,
+    ];
 }
 
 function requireOkEnvelope(array $resp, string $ctx): array
 {
     if (($resp['status'] ?? 0) !== 200) {
-        throw new RuntimeException("$ctx unexpected status " . ($resp['status'] ?? 0));
+        $detail = '';
+        if (!empty($resp['error'])) {
+            $detail = ' (' . (string)$resp['error'] . ')';
+        } elseif (!empty($resp['raw'])) {
+            $snippet = stringSnippet(trim((string) $resp['raw']), 180);
+            if ($snippet !== '') $detail = ' (' . $snippet . ')';
+        }
+        throw new RuntimeException("$ctx unexpected status " . ($resp['status'] ?? 0) . $detail);
     }
     if (!is_array($resp['body'])) {
         throw new RuntimeException("$ctx did not return JSON body");
@@ -156,15 +274,18 @@ echo "Lazy-mint E2E smoke tests\n=========================\n";
 
 $sampleToken = 'qd-silver-0000706';
 
-t('GET /api/v1/health returns ok=true', function () use ($base): void {
+t('GET /api/v1/health returns ok=true', function () use ($base, &$healthDbState): void {
     $resp = httpReq('GET', "$base/api/v1/health");
     $body = requireOkEnvelope($resp, '/api/v1/health');
+    $db = $body['data']['db'] ?? null;
+    $healthDbState = is_string($db) && $db !== '' ? $db : 'unknown';
     if (($body['data']['service'] ?? '') !== 'rarefolio-marketplace-api') {
         throw new RuntimeException('unexpected service value');
     }
 });
 
 t('GET /api/v1/tokens/{id} includes status.mint_mode', function () use ($base, $sampleToken): void {
+    requireDbReadyForLocal('/api/v1/tokens/{id}');
     $resp = httpReq('GET', "$base/api/v1/tokens/$sampleToken");
     $body = requireOkEnvelope($resp, "/api/v1/tokens/$sampleToken");
     $status = $body['data']['status'] ?? null;
@@ -181,6 +302,7 @@ t('GET /api/v1/tokens/{id} includes status.mint_mode', function () use ($base, $
 });
 
 t('GET /api/v1/listings returns listings[] schema with status.mint_mode when rows exist', function () use ($base): void {
+    requireDbReadyForLocal('/api/v1/listings');
     $resp = httpReq('GET', "$base/api/v1/listings?limit=50");
     $body = requireOkEnvelope($resp, '/api/v1/listings');
     $listings = $body['data']['listings'] ?? null;
@@ -226,6 +348,7 @@ t('POST /api/buy-order.php with malformed tx_hash returns 400', function () use 
 });
 
 t('POST /api/buy-order.php for unknown token returns 404', function () use ($base): void {
+    requireDbReadyForLocal('/api/buy-order.php unknown token');
     $resp = httpReq('POST', "$base/api/buy-order.php", [
         'token_id' => 'qd-silver-9999999',
         'buyer_addr' => 'addr1qexamplebuyeraddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
@@ -245,5 +368,5 @@ if (is_resource($proc)) {
     proc_close($proc);
 }
 
-echo "\nResults: $pass passed, $fail failed\n";
+echo "\nResults: $pass passed, $fail failed, $skip skipped\n";
 exit($fail === 0 ? 0 : 1);

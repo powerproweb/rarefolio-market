@@ -1,5 +1,5 @@
 # RareFolio Marketplace — Project Status
-**Last updated:** 2026-04-26
+**Last updated:** 2026-05-16
 **Branch:** `main` (tracking `origin/main`)
 **Head commit:** `f83a63b`
 
@@ -15,6 +15,7 @@
 - **Admin diagnostics verification complete (2026-04-26):** live authenticated dashboard check passed and rendered the Network consistency diagnostics section.
 - **Diagnostics finding (resolved 2026-04-26):** app and sidecar envs are aligned to `BLOCKFROST_NETWORK=mainnet`; server-side key checks return `MAINNET_HTTP:200` and `PREPROD_HTTP:403` for both env files.
 - **Task status:** Network/token drift remediation is complete; current focus is remaining Phase F hardening items.
+- **Verification script alignment complete (2026-05-16):** `verify.php` migration validation now accepts executable DDL or DML files, so seed/backfill migrations like `007_seed_founders_block88_tokens.sql` no longer fail as false negatives.
 
 ## Local repository state
 

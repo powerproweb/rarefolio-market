@@ -19,12 +19,14 @@ require_once __DIR__ . '/../src/Db.php';
 require_once __DIR__ . '/../src/Api/Cors.php';
 require_once __DIR__ . '/../src/Api/RateLimit.php';
 require_once __DIR__ . '/../src/Sidecar/Client.php';
+require_once __DIR__ . '/../src/Blockfrost/Client.php';
 
 use RareFolio\Config;
 use RareFolio\Db;
 use RareFolio\Api\Cors;
 use RareFolio\Api\RateLimit;
 use RareFolio\Sidecar\Client as SidecarClient;
+use RareFolio\Blockfrost\Client as BlockfrostClient;
 
 Config::load(__DIR__ . '/../.env');
 Cors::apply();
@@ -225,6 +227,20 @@ try {
         exit;
     }
 
+    try {
+        $paymentVerification = verifyPaymentToSplitWallet($txHash, $splitAddr, $priceLovelace);
+    } catch (RuntimeException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        $status = (int)$e->getCode();
+        if ($status < 400 || $status > 599) $status = 502;
+        http_response_code($status);
+        echo json_encode([
+            'ok'    => false,
+            'error' => $e->getMessage(),
+        ]);
+        exit;
+    }
+
     $royaltyPct = (float)($token['royalty_total_pct'] ?? 8.0);
     $platformPct = (float)($token['platform_fee_pct'] ?? 2.5);
     $royaltyLovelace = (int)round($priceLovelace * $royaltyPct / 100);
@@ -239,14 +255,14 @@ try {
              sale_amount_lovelace, platform_fee_lovelace,
              creator_royalty_lovelace, seller_net_lovelace,
              creator_addr, platform_addr,
-             order_tx_hash, status, failure_reason)
+             order_tx_hash, block_height, status, failure_reason)
          VALUES
             (NULL, :nft_id, :tid,
              :buyer, :seller,
              :sale, :platform_fee,
              :royalty, :net,
              :creator, :platform,
-             :tx, 'pending', NULL)"
+             :tx, :block_height, 'pending', NULL)"
     )->execute([
         ':nft_id'       => (int)$token['nft_id'],
         ':tid'          => $tokenId,
@@ -259,6 +275,7 @@ try {
         ':creator'      => $splitAddr,
         ':platform'     => $splitAddr,
         ':tx'           => $txHash,
+        ':block_height' => $paymentVerification['block_height'],
     ]);
     $orderId = (int)$pdo->lastInsertId();
 
@@ -444,6 +461,68 @@ function resolveAssetNameUtf8(string $assetNameUtf8, string $assetNameHex, strin
         }
     }
     return $fallback;
+}
+
+/**
+ * @return array{block_height:int, received_lovelace:int}
+ */
+function verifyPaymentToSplitWallet(string $txHash, string $splitAddr, int $expectedLovelace): array
+{
+    try {
+        $bf = new BlockfrostClient();
+    } catch (Throwable $e) {
+        throw new RuntimeException('payment verification is not configured', 502, $e);
+    }
+
+    try {
+        $tx = $bf->tx($txHash);
+    } catch (Throwable $e) {
+        throw new RuntimeException('payment verification unavailable, chain lookup failed', 502, $e);
+    }
+    if (!is_array($tx)) {
+        throw new RuntimeException('payment transaction not yet confirmed on chain', 409);
+    }
+
+    try {
+        $utxos = $bf->txUtxos($txHash);
+    } catch (Throwable $e) {
+        throw new RuntimeException('payment verification unavailable, transaction outputs lookup failed', 502, $e);
+    }
+    if (!is_array($utxos)) {
+        throw new RuntimeException('payment transaction outputs unavailable', 502);
+    }
+
+    $receivedLovelace = lovelacePaidToAddressFromTxUtxos($utxos, $splitAddr);
+    if ($receivedLovelace < $expectedLovelace) {
+        throw new RuntimeException('payment amount to split wallet is below required collection price', 409);
+    }
+
+    return [
+        'block_height'      => (int)($tx['block_height'] ?? 0),
+        'received_lovelace' => $receivedLovelace,
+    ];
+}
+
+function lovelacePaidToAddressFromTxUtxos(array $txUtxos, string $address): int
+{
+    $sum = 0;
+    $target = trim($address);
+    $outputs = $txUtxos['outputs'] ?? [];
+    if (!is_array($outputs)) return 0;
+
+    foreach ($outputs as $output) {
+        if (!is_array($output)) continue;
+        if (trim((string)($output['address'] ?? '')) !== $target) continue;
+        $amounts = $output['amount'] ?? [];
+        if (!is_array($amounts)) continue;
+        foreach ($amounts as $entry) {
+            if (!is_array($entry)) continue;
+            if ((string)($entry['unit'] ?? '') !== 'lovelace') continue;
+            $sum += (int)($entry['quantity'] ?? 0);
+        }
+    }
+
+    return $sum;
 }
 
 function qdOrdersColumnExists(PDO $pdo, string $column): bool

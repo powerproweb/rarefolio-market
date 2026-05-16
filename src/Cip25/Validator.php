@@ -210,11 +210,16 @@ final class Validator
             }
         }
 
-        // 5. rarefolio_token_id — flexible format (RF-0001, qd-silver-0000705, etc.)
+        // 5. rarefolio_token_id format
+        //    Accepted canonical forms:
+        //      - RF-0001 / RF-000001 (uppercase RF + 4 to 8 digits)
+        //      - qd-silver-0000705 style ids (lowercase slug + numeric suffix)
         if (!empty($asset['rarefolio_token_id'])) {
             $rid = (string) $asset['rarefolio_token_id'];
-            if (strlen($rid) < 3 || strlen($rid) > 64) {
-                $errors[] = '`rarefolio_token_id` must be 3–64 characters (e.g. qd-silver-0000705).';
+            $isRfNumeric = preg_match('/^RF-\d{4,8}$/', $rid) === 1;
+            $isSlugNumeric = preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)+-\d{4,10}$/', $rid) === 1;
+            if (!$isRfNumeric && !$isSlugNumeric) {
+                $errors[] = '`rarefolio_token_id` format is invalid. Use `RF-0001` style or lowercase slug ids like `qd-silver-0000705`.';
             }
         }
 
@@ -230,17 +235,14 @@ final class Validator
         //    If sanitize() was called first this check is purely for confirmation.
         $longFields = self::findLongStrings($asset);
         if (!empty($longFields)) {
-            $warnings[] = 'The following fields have string values > 64 bytes and have NOT been '
+            $warnings[] = 'The following fields have string values > 64 bytes (about 64 chars for ASCII text) and have NOT been '
                 . 'auto-split yet. Call Validator::sanitize() before saving: '
                 . implode(', ', $longFields);
         }
-
-        // 8. attributes must be object not list (unless intentionally a list)
+        // 8. attributes must be a key/value object
         if (isset($asset['attributes'])) {
             if (!is_array($asset['attributes']) || array_is_list($asset['attributes'])) {
-                $warnings[] = '`attributes` is a list array. This is valid CIP-25 but most '
-                    . 'explorers expect a key/value object for trait display. '
-                    . 'Use {"trait": "value"} unless you have a specific reason for a list.';
+                $errors[] = '`attributes` must be a JSON object (key/value pairs), not a list.';
             }
         }
 

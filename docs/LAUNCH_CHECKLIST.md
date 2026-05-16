@@ -60,6 +60,8 @@
 - [ ] Create the MySQL database and user (see `docs/CONTRIBUTING.md`)
 - [ ] Run migrations: `php db/migrate.php`
   — confirm output shows migrations 001–012 applied
+- [ ] Run repository verification: `php verify.php`
+  — confirms syntax/tests and validates migration SQL files as executable DDL/DML (schema and seed/backfill)
 - [ ] Install sidecar dependencies: `cd sidecar && npm ci`
 - [ ] Start the sidecar (pm2 or systemd): `pm2 start "npm start" --name rarefolio-sidecar`
 - [ ] Verify sidecar health: `curl http://localhost:4000/health`

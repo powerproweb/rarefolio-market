@@ -53,7 +53,7 @@ try {
     switch ($action) {
         case 'prepare':
         case 'prepare_json':
-            $result = callSidecarPrepare($row, $body['recipient_addr_hex'] ?? null);
+            $result = callSidecarPrepare($pdo, $row, $body['recipient_addr_hex'] ?? null);
             if ($action === 'prepare_json') {
                 respond($result, 200, true, $id);
             }
@@ -150,15 +150,11 @@ try {
  * @param array<string,mixed> $row
  * @return array<string,mixed>
  */
-function callSidecarPrepare(array $row, ?string $recipient): array
+function callSidecarPrepare(PDO $pdo, array $row, ?string $recipient): array
 {
     $sidecar = new SidecarClient();
     $cip25 = json_decode($row['cip25_json'], true) ?: [];
-    // Derive policy_env_key from the collection_slug:
-    // last '-' segment uppercased. e.g. 'silverbar-01-founders' -> 'FOUNDERS'
-    $slug = (string) ($row['collection_slug'] ?? '');
-    $parts = $slug === '' ? [] : explode('-', $slug);
-    $policyEnvKey = $parts ? strtoupper((string) end($parts)) : null;
+    $collectionConfig = resolveCollectionMintConfig($pdo, (string) ($row['collection_slug'] ?? ''));
     $payload = [
         'rarefolio_token_id' => $row['rarefolio_token_id'],
         'collection_slug'    => $row['collection_slug'],
@@ -166,9 +162,69 @@ function callSidecarPrepare(array $row, ?string $recipient): array
         'asset_name_utf8'    => @hex2bin($row['asset_name_hex']) ?: $row['asset_name_hex'],
         'recipient_addr'     => $recipient ?: 'addr_test1qq_placeholder_recipient',
         'cip25'              => $cip25,
-        'policy_env_key'     => $policyEnvKey ?: null,
+        'policy_env_key'     => $collectionConfig['policy_env_key'],
+        'lock_slot'          => $collectionConfig['lock_slot'],
     ];
-    return $sidecar->prepareMint(array_filter($payload, fn($v) => $v !== null));
+    return $sidecar->prepareMint(array_filter($payload, static fn($v) => $v !== null));
+}
+
+/**
+ * Resolve collection-level mint policy config for sidecar mint preparation.
+ *
+ * @return array{policy_env_key:string,lock_slot:int|null}
+ */
+function resolveCollectionMintConfig(PDO $pdo, string $collectionSlug): array
+{
+    if ($collectionSlug === '') {
+        throw new RuntimeException('Mint queue row is missing collection_slug.');
+    }
+
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT policy_env_key, lock_slot FROM qd_collections WHERE slug = ? LIMIT 1'
+        );
+        $stmt->execute([$collectionSlug]);
+        $collection = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        throw new RuntimeException(
+            'Unable to resolve policy settings from qd_collections. '
+            . 'Run the collection policy migration before minting. '
+            . 'Details: ' . $e->getMessage(),
+            0,
+            $e
+        );
+    }
+    if (!is_array($collection)) {
+        throw new RuntimeException(
+            "Collection '{$collectionSlug}' was not found in qd_collections. "
+            . 'Create or update the collection before preparing a mint.'
+        );
+    }
+
+    $policyEnvKey = strtoupper(trim((string) ($collection['policy_env_key'] ?? '')));
+    if ($policyEnvKey === '') {
+        throw new RuntimeException(
+            "Collection '{$collectionSlug}' has no policy_env_key in qd_collections. "
+            . 'Set it before preparing a mint.'
+        );
+    }
+    if (!preg_match('/^[A-Z0-9_]+$/', $policyEnvKey)) {
+        throw new RuntimeException(
+            "Collection '{$collectionSlug}' has invalid policy_env_key '{$policyEnvKey}'. "
+            . 'Use letters, numbers, and underscores only.'
+        );
+    }
+
+    $lockSlotRaw = $collection['lock_slot'] ?? null;
+    $lockSlot = $lockSlotRaw === null ? null : (int) $lockSlotRaw;
+    if ($lockSlot !== null && $lockSlot <= 0) {
+        $lockSlot = null;
+    }
+
+    return [
+        'policy_env_key' => $policyEnvKey,
+        'lock_slot'      => $lockSlot,
+    ];
 }
 
 /**

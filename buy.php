@@ -81,6 +81,34 @@ function ada(int $lovelace, int $decimals = 2): string
 {
     return number_format($lovelace / 1_000_000, $decimals) . ' ₳';
 }
+function usdPerAdaRate(): ?float
+{
+    $raw = trim((string) Config::get('DISPLAY_USD_PER_ADA', ''));
+    if ($raw === '' || !is_numeric($raw)) {
+        return null;
+    }
+    $rate = (float) $raw;
+    return $rate > 0 ? $rate : null;
+}
+
+function adaWithUsd(int $lovelace, ?float $usdPerAda, int $adaDecimals = 2): string
+{
+    $adaAmount = $lovelace / 1_000_000;
+    $label = number_format($adaAmount, $adaDecimals) . ' ₳';
+    if ($usdPerAda === null) {
+        return $label;
+    }
+    $usdAmount = $adaAmount * $usdPerAda;
+    return $label . ' ($' . number_format($usdAmount, 2) . ' USD)';
+}
+function usdLabel(int $lovelace, ?float $usdPerAda): ?string
+{
+    if ($usdPerAda === null) {
+        return null;
+    }
+    $usdAmount = ($lovelace / 1_000_000) * $usdPerAda;
+    return '$' . number_format($usdAmount, 2) . ' USD';
+}
 
 function ipfsGateway(string $uri): string
 {
@@ -118,6 +146,7 @@ if ($token) {
 $isSold = $token && in_array($token['primary_sale_status'], ['sold', 'sold_pre_marketplace'], true);
 $sidecarUrl = rtrim((string) Config::get('SIDECAR_BASE_URL', 'http://localhost:4000'), '/');
 $mainSiteUrl = 'https://rarefolio.io';
+$displayUsdPerAda = usdPerAdaRate();
 
 $pageTitle = $token ? h($token['title']) . ' — RareFolio' : 'Purchase — RareFolio';
 ?>
@@ -136,7 +165,9 @@ $pageTitle = $token ? h($token['title']) . ' — RareFolio' : 'Purchase — Rare
   .buy-panel    { display:flex; flex-direction:column; gap:1.5rem; }
   .buy-title    { font-size:1.6rem; font-weight:700; color:#ffefbd; margin:0; }
   .buy-char     { color:#a0aec0; font-size:1rem; margin:0.25rem 0 0; }
-  .buy-price    { font-size:2rem; font-weight:700; color:#00d4e7; }
+  .buy-price    { display:flex; align-items:baseline; flex-wrap:wrap; gap:.55rem; font-size:2rem; font-weight:700; color:#00d4e7; }
+  .buy-price-ada { color:#00d4e7; font-weight:700; }
+  .buy-price-usd { color:#9ae6b4 !important; font-size:1.1rem; font-weight:400 !important; }
   .buy-desc     { color:#cbd5e0; line-height:1.7; }
   .buy-section  { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:1.5rem; }
   .buy-section h3 { margin:0 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:.08em; color:#a0aec0; }
@@ -218,7 +249,16 @@ $pageTitle = $token ? h($token['title']) . ' — RareFolio' : 'Purchase — Rare
     </div>
 
     <?php if ($token['price_lovelace']): ?>
-      <div class="buy-price"><?= ada((int)$token['price_lovelace']) ?></div>
+      <?php
+        $displayAda = ada((int)$token['price_lovelace']);
+        $displayUsd = usdLabel((int)$token['price_lovelace'], $displayUsdPerAda);
+      ?>
+      <div class="buy-price">
+        <span class="buy-price-ada"><?= h($displayAda) ?></span>
+        <?php if ($displayUsd !== null): ?>
+          <span class="buy-price-usd">(<?= h($displayUsd) ?>)</span>
+        <?php endif; ?>
+      </div>
     <?php else: ?>
       <div class="buy-price" style="font-size:1.2rem;color:#a0aec0;">Price on request</div>
     <?php endif; ?>
@@ -242,7 +282,7 @@ $pageTitle = $token ? h($token['title']) . ' — RareFolio' : 'Purchase — Rare
       <?php
         $priceLovelace   = (int)$token['price_lovelace'];
         $splitWalletAddr = (string)$token['split_wallet_addr'];
-        $priceAda        = $priceLovelace / 1_000_000;
+        $priceDisplay    = adaWithUsd($priceLovelace, $displayUsdPerAda);
       ?>
 
       <!-- Option 1: CIP-30 Wallet Connect -->
@@ -252,7 +292,7 @@ $pageTitle = $token ? h($token['title']) . ' — RareFolio' : 'Purchase — Rare
           Works with Eternl, Lace, Nami, Typhon, and other CIP-30 wallets.
         </p>
         <button class="btn-primary" id="btn-connect-pay">
-          Connect Wallet &amp; Pay <?= h(number_format($priceAda, 2)) ?> ₳
+          Connect Wallet &amp; Pay <?= h($priceDisplay) ?>
         </button>
         <div class="pay-status" id="wallet-status"></div>
         <pre id="wallet-log" style="display:none;background:#0a0d17;border-radius:8px;padding:.75rem;font-size:.75rem;color:#a0aec0;white-space:pre-wrap;margin-top:.75rem;max-height:120px;overflow:auto;"></pre>
@@ -262,7 +302,7 @@ $pageTitle = $token ? h($token['title']) . ' — RareFolio' : 'Purchase — Rare
       <div class="buy-section">
         <h3><span class="step-num">2</span> Pay Manually from Any Wallet</h3>
         <p style="color:#a0aec0;font-size:.85rem;margin:0 0 .5rem;">
-          Send exactly <strong style="color:#fff"><?= h(number_format($priceAda, 2)) ?> ₳</strong> to:
+          Send exactly <strong style="color:#fff"><?= h($priceDisplay) ?></strong> to:
         </p>
         <div class="addr-box" id="payment-addr"><?= h($splitWalletAddr) ?></div>
         <button class="copy-btn" onclick="copyAddr()">Copy address</button>

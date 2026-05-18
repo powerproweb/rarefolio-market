@@ -10,6 +10,33 @@
  */
 import type { Express, Request, Response, NextFunction } from 'express';
 import { bf } from '../lib/blockfrost.js';
+type BlockfrostErrorShape = {
+    status_code?: number;
+    statusCode?: number;
+    message?: string;
+    response?: {
+        status?: number;
+        data?: {
+            status_code?: number;
+            statusCode?: number;
+        };
+    };
+};
+
+function blockfrostStatus(err: unknown): number | null {
+    const e = err as BlockfrostErrorShape;
+    const status =
+        e?.status_code ??
+        e?.statusCode ??
+        e?.response?.status ??
+        e?.response?.data?.status_code ??
+        e?.response?.data?.statusCode;
+    return typeof status === 'number' ? status : null;
+}
+
+function isBlockfrostConfigError(err: unknown): boolean {
+    return err instanceof Error && /BLOCKFROST_API_KEY is not set/i.test(err.message);
+}
 
 export function mountSyncRoutes(app: Express): void {
 
@@ -35,13 +62,25 @@ export function mountSyncRoutes(app: Express): void {
             if (!/^[0-9a-fA-F]{56,}$/.test(unit)) {
                 return res.status(400).json({ error: 'invalid unit (expected policy_id + asset_name_hex, min 56 hex chars)' });
             }
-
-            const api = bf();
-
-            const asset = await api.assetsById(unit).catch((e) => {
-                if ((e as { status_code?: number }).status_code === 404) return null;
+            let api: ReturnType<typeof bf>;
+            try {
+                api = bf();
+            } catch (e) {
+                if (isBlockfrostConfigError(e)) {
+                    return res.status(503).json({ error: 'blockfrost is not configured' });
+                }
                 throw e;
-            });
+            }
+
+            let asset;
+            try {
+                asset = await api.assetsById(unit);
+            } catch (e) {
+                if (blockfrostStatus(e) === 404) {
+                    return res.status(404).json({ error: 'asset not found on chain' });
+                }
+                throw e;
+            }
 
             if (!asset) {
                 return res.status(404).json({ error: 'asset not found on chain' });
@@ -82,8 +121,15 @@ export function mountSyncRoutes(app: Express): void {
 
             const page  = Math.max(1, Number(req.query.page  ?? 1));
             const count = Math.min(100, Math.max(1, Number(req.query.count ?? 100)));
-
-            const api    = bf();
+            let api: ReturnType<typeof bf>;
+            try {
+                api = bf();
+            } catch (e) {
+                if (isBlockfrostConfigError(e)) {
+                    return res.status(503).json({ error: 'blockfrost is not configured' });
+                }
+                throw e;
+            }
             const assets = await api.assetsPolicyByIdAll(policyId);
             const paged  = assets.slice((page - 1) * count, page * count);
 

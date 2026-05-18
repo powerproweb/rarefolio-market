@@ -42,6 +42,27 @@ final class Client
     }
 
     /**
+     * Transfer a companion FT from treasury to collector.
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public function transferCompanionAsset(array $payload): array
+    {
+        return $this->post('/companion/transfer', $payload);
+    }
+
+    /**
+     * Read treasury wallet ADA balance for a companion env key.
+     *
+     * @return array<string,mixed>
+     */
+    public function getCompanionTreasuryBalance(string $envKey): array
+    {
+        return $this->get('/companion/treasury/' . rawurlencode(strtoupper($envKey)) . '/balance');
+    }
+
+    /**
      * Derive the policy ID and address for a named collection env key.
      * e.g. getPolicyInfoForKey('FOUNDERS') queries GET /mint/policy-id?env_key=FOUNDERS
      *

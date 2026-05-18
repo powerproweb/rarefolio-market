@@ -28,6 +28,11 @@ function migrationLog(string $message, bool $error = false): void
     echo $line;
 }
 
+function hasUnresolvedPlaceholderGuard(string $sql): bool
+{
+    return preg_match("/'REPLACE_[A-Z0-9_]+'/", $sql) === 1;
+}
+
 Config::load(__DIR__ . '/../.env');
 $pdo = Db::pdo();
 
@@ -56,6 +61,10 @@ foreach ($files as $file) {
     $sql = file_get_contents($file);
     if ($sql === false || trim($sql) === '') {
         migrationLog("skip  $name (empty or unreadable)", true);
+        continue;
+    }
+    if (hasUnresolvedPlaceholderGuard($sql)) {
+        migrationLog("skip  $name (contains unresolved REPLACE_* placeholders)");
         continue;
     }
 

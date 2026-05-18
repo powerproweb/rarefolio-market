@@ -81,7 +81,7 @@ FROM qd_mint_queue q
 WHERE q.collection_slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
   AND (
       q.cip25_json LIKE CONCAT('%', @old_cid, '%')
-      OR q.image_ipfs_cid = @old_cid
+      OR q.image_ipfs_cid = (@old_cid COLLATE utf8mb4_unicode_ci)
   );
 
 UPDATE qd_tokens
@@ -95,14 +95,14 @@ UPDATE qd_mint_queue
 SET
     cip25_json = REPLACE(cip25_json, @old_cid, @new_cid),
     image_ipfs_cid = CASE
-        WHEN image_ipfs_cid = @old_cid THEN @new_cid
+        WHEN image_ipfs_cid = (@old_cid COLLATE utf8mb4_unicode_ci) THEN @new_cid
         ELSE image_ipfs_cid
     END,
     updated_at = NOW()
 WHERE collection_slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
   AND (
       cip25_json LIKE CONCAT('%', @old_cid, '%')
-      OR image_ipfs_cid = @old_cid
+      OR image_ipfs_cid = (@old_cid COLLATE utf8mb4_unicode_ci)
   );
 
 -- Validation gates (run manually after migration):

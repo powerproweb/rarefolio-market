@@ -1,7 +1,7 @@
 # RareFolio Marketplace — Project Status
-**Last updated:** 2026-04-25
+**Last updated:** 2026-05-16
 **Branch:** `main` (tracking `origin/main`)
-**Head commit:** `eef4c38`
+**Head commit:** `f83a63b`
 
 ---
 
@@ -12,26 +12,24 @@
   - `db/migrations/017_update_founders_ipfs_cids.sql`
   - `db/migrations/018_fix_founders_ipfs_cids.sql`
 - **Current focus:** Phase F mainnet readiness (operational cutover + irreversible policy decisions)
+- **Admin diagnostics verification complete (2026-04-26):** live authenticated dashboard check passed and rendered the Network consistency diagnostics section.
+- **Diagnostics finding (resolved 2026-04-26):** app and sidecar envs are aligned to `BLOCKFROST_NETWORK=mainnet`; server-side key checks return `MAINNET_HTTP:200` and `PREPROD_HTTP:403` for both env files.
+- **Task status:** Network/token drift remediation is complete; current focus is remaining Phase F hardening items.
+- **Verification script alignment complete (2026-05-16):** `verify.php` migration validation now accepts executable DDL or DML files, so seed/backfill migrations like `007_seed_founders_block88_tokens.sql` no longer fail as false negatives.
 
-## Local repository state (uncommitted)
+## Local repository state
 
-- Deleted:
-  - `rarefolio_marketplace_php_site_plan.md`
-- Untracked:
-  - `OZ_WORK_CONTEXT.txt`
-  - `rarefolio_market_php_site_plan.md`
-  - `scripts/sync_owner_0705.php`
-  - `sidecar/package-lock.json`
-  - `sidecar/scripts/`
+- Working tree is clean on `main` (no uncommitted changes)
+- `main` is synchronized with `origin/main`
 
 ---
 
 ## Current blockers (Phase F)
 
-1. Enable cPanel **Normal Shell** access (required for sidecar CI/CD flow)
-2. Generate a **fresh mainnet** `POLICY_MNEMONIC` (never reuse preprod key)
-3. Decide `POLICY_LOCK_SLOT` **before** first mainnet mint (irreversible policy behavior)
-4. Switch both envs to mainnet and run production hardening checks
+1. Repeat Phase D for mainnet completion (derive/record policy ID and fund wallet)
+2. Rotate webhook secret and `ADMIN_PASS`
+3. Remove `verify.php` / `tests` from production web root and block `src/`, `db/`, `sidecar/` from HTTP access
+4. Complete production checklist + final smoke checks before Phase G launch
 
 ---
 

@@ -22,12 +22,12 @@
 #  File sync uses the SFTP subsystem (no shell needed).
 #  DB migrations are triggered via an HTTP endpoint (admin/run-migrations.php)
 #  protected by DEPLOY_WEBHOOK_SECRET.
-#  Sidecar rebuild/restart must be done manually until shell access is enabled.
 #
 #  What this workflow does:
 #    1. Sync PHP application files via lftp SFTP mirror
 #    2. Trigger DB migrations via HTTPS (admin/run-migrations.php)
-#    3. Verify marketplace health via public API
+#    3. Rebuild/restart sidecar when sidecar source changes
+#    4. Verify marketplace health via public API
 #
 #  Trigger manually:
 #    GitHub → Actions → Deploy marketplace → Run workflow
@@ -50,14 +50,81 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Resolve SFTP host
+        id: sftp_host
+        run: echo "host=50.6.202.60" >> "$GITHUB_OUTPUT"
+
       # ---- SSH key (same format as rarefolio.io deploy) --------------------
       - name: Install SSH key
         run: |
           mkdir -p ~/.ssh
-          # Decode base64-encoded key — avoids CRLF/echo corruption
-          echo "${{ secrets.SFTP_KEY }}" | base64 -d > ~/.ssh/deploy_key
+          KEY_CONTENT="${{ secrets.SFTP_KEY }}"
+          if [ -z "$KEY_CONTENT" ]; then
+            echo "SFTP_KEY secret is missing"
+            exit 1
+          fi
+          # Prefer base64 decode, then fall back to text key content.
+          if printf '%s' "$KEY_CONTENT" | base64 -d > ~/.ssh/deploy_key 2>/dev/null && grep -q "PRIVATE KEY" ~/.ssh/deploy_key; then
+            echo "Loaded SFTP key from base64 secret"
+          else
+            printf '%b' "$KEY_CONTENT" | tr -d '\r' > ~/.ssh/deploy_key
+            echo "Loaded SFTP key as raw text"
+          fi
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p ${{ secrets.SFTP_PORT }} ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+            echo "SFTP_KEY is not a valid private key. Store it as base64 private key content or as a full multiline key."
+            exit 1
+          fi
+          # Non-fatal: lftp uses StrictHostKeyChecking=no for this deploy channel.
+          ssh-keyscan -p 22 ${{ steps.sftp_host.outputs.host }} >> ~/.ssh/known_hosts || true
+
+      - name: Resolve remote deploy directory
+        id: deploy_target
+        run: |
+          REMOTE_DIR="${{ secrets.MARKET_REMOTE_DIR }}"
+          if [ -z "$REMOTE_DIR" ]; then
+            REMOTE_DIR="${{ secrets.SFTP_REMOTE_DIR }}"
+          fi
+          if [ -z "$REMOTE_DIR" ]; then
+            echo "Missing remote directory secret. Set MARKET_REMOTE_DIR or SFTP_REMOTE_DIR."
+            exit 1
+          fi
+          echo "remote_dir=$REMOTE_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Detect sidecar source changes
+        id: sidecar_changes
+        run: |
+          BASE_SHA="${{ github.event.before }}"
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+              BASE_SHA="$(git rev-parse HEAD~1)"
+            else
+              BASE_SHA="$(git rev-parse HEAD)"
+            fi
+          fi
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          if git diff --name-only "$BASE_SHA" "${{ github.sha }}" | grep -qE '^sidecar/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "sidecar source changes detected"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "no sidecar source changes detected"
+          fi
+
+      - name: Probe SFTP authentication
+        run: |
+          if ! timeout 30s sftp \
+            -oBatchMode=yes \
+            -oStrictHostKeyChecking=no \
+            -oConnectTimeout=20 \
+            -i ~/.ssh/deploy_key \
+            -P 22 \
+            "${{ secrets.SFTP_USER }}@${{ steps.sftp_host.outputs.host }}" \
+            <<< $'bye' > /tmp/sftp_probe.log 2>&1; then
+            cat /tmp/sftp_probe.log
+            echo "SFTP probe failed. Verify SFTP_USER, SFTP_KEY, and BlueHost SSH/SFTP access."
+            exit 1
+          fi
 
       # ---- 1. Sync PHP application files via lftp SFTP --------------------
       - name: Install lftp
@@ -67,10 +134,13 @@ jobs:
         run: |
           lftp -c "
             set sftp:auto-confirm yes
-            set sftp:connect-program 'ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -p ${{ secrets.SFTP_PORT }} -q'
+            set cmd:fail-exit yes
+            set sftp:connect-program 'ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=20 -o ConnectionAttempts=3 -p 22 -q'
             set net:timeout 60
             set net:max-retries 3
-            open -u \"${{ secrets.SFTP_USER }},\" sftp://${{ secrets.SFTP_HOST }}
+            set net:reconnect-interval-base 5
+            set net:reconnect-interval-max 20
+            open -u \"${{ secrets.SFTP_USER }},\" sftp://${{ steps.sftp_host.outputs.host }}
             mirror --reverse --verbose --only-newer \
               --exclude-glob .git/ \
               --exclude-glob .gitignore \
@@ -90,7 +160,7 @@ jobs:
               --exclude-glob 'sidecar/node_modules/' \
               --exclude-glob 'sidecar/dist/' \
               --exclude-glob '*.log' \
-              ./ ${{ secrets.MARKET_REMOTE_DIR }}/
+              ./ ${{ steps.deploy_target.outputs.remote_dir }}/
             bye
           "
 
@@ -99,13 +169,71 @@ jobs:
       #  DEPLOY_WEBHOOK_SECRET. Safe to skip if secret not yet configured.
       - name: Run DB migrations
         run: |
-          RESPONSE=$(curl -fsS \
+          if [ -z "${{ secrets.DEPLOY_WEBHOOK_SECRET }}" ]; then
+            echo "DEPLOY_WEBHOOK_SECRET not configured; skipping migration trigger"
+            exit 0
+          fi
+          HTTP_CODE=$(curl -sS \
+            -o /tmp/migration_response.json \
+            -w "%{http_code}" \
             -X POST \
             -H "X-Deploy-Secret: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}" \
-            "https://market.rarefolio.io/admin/run-migrations.php" 2>&1) || true
-          echo "Migration response: $RESPONSE"
+            "https://market.rarefolio.io/admin/run-migrations.php")
+          echo "Migration HTTP status: $HTTP_CODE"
+          cat /tmp/migration_response.json
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Migration trigger failed"
+            exit 1
+          fi
+      # ---- 3. Sidecar rebuild/restart + companion route gate -----------------
+      # Runs only when sidecar source changed in this deploy range.
+      - name: Rebuild/restart sidecar and verify companion route
+        if: steps.sidecar_changes.outputs.changed == 'true'
+        run: |
+          REMOTE_DIR="${{ steps.deploy_target.outputs.remote_dir }}"
+          SSH_TARGET="${{ secrets.SFTP_USER }}@${{ steps.sftp_host.outputs.host }}"
+          timeout 300s ssh \
+            -oBatchMode=yes \
+            -oStrictHostKeyChecking=no \
+            -oConnectTimeout=20 \
+            -i ~/.ssh/deploy_key \
+            -p 22 \
+            "$SSH_TARGET" \
+            "set -euo pipefail
+             cd '$REMOTE_DIR/sidecar'
+             if [ -f package-lock.json ]; then npm ci; else npm install; fi
+             npm run build
 
-      # ---- 3. Health check via public API ----------------------------------
+             restart_ok=0
+             if command -v sudo >/dev/null 2>&1 && sudo -n systemctl restart rarefolio-sidecar >/dev/null 2>&1; then
+               restart_ok=1
+             elif command -v systemctl >/dev/null 2>&1 && systemctl restart rarefolio-sidecar >/dev/null 2>&1; then
+               restart_ok=1
+             elif command -v systemctl >/dev/null 2>&1 && systemctl --user restart rarefolio-sidecar >/dev/null 2>&1; then
+               restart_ok=1
+             elif command -v pm2 >/dev/null 2>&1 && pm2 restart rarefolio-sidecar >/dev/null 2>&1; then
+               restart_ok=1
+             fi
+             if [ \"\$restart_ok\" != \"1\" ]; then
+               echo 'unable to restart sidecar process manager (systemctl or pm2)'
+               exit 1
+             fi
+
+             curl -fsS http://127.0.0.1:4000/health >/tmp/rf-sidecar-health.json
+             PROBE_CODE=\$(curl -sS -o /tmp/rf-companion-route.json -w '%{http_code}' \
+               http://127.0.0.1:4000/companion/treasury/INVALID-ENV-KEY/balance || true)
+             if [ \"\$PROBE_CODE\" != \"400\" ]; then
+               echo \"companion route probe expected HTTP 400, got \$PROBE_CODE\"
+               cat /tmp/rf-companion-route.json || true
+               exit 1
+             fi
+             echo 'sidecar health:'
+             cat /tmp/rf-sidecar-health.json
+             echo 'companion route probe:'
+             cat /tmp/rf-companion-route.json
+            "
+
+      # ---- 4. Health check via public API -----------------------------------
       - name: Health check
         run: |
           for i in $(seq 1 10); do
@@ -120,11 +248,3 @@ jobs:
           done
           echo "Health check failed after 10 attempts"
           exit 1
-
-      # ---- NOTE: Sidecar rebuild/restart ----------------------------------
-      #  BlueHost shell access is disabled for this account.
-      #  Sidecar changes require manual rebuild:
-      #    1. Enable shell in cPanel → SSH Access → Manage Shell Access
-      #    2. Run: bash scripts/rf-deploy.sh  (or npm ci && npm run build)
-      #  To re-enable automated sidecar deploys, add SSH shell access and
-      #  restore the SSH steps from git history.

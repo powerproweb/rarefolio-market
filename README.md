@@ -20,7 +20,31 @@ cd sidecar && npm install && npm run dev
 # 4. Start the PHP dev server
 php -S localhost:8080 -t . tests/cli_router.php
 # then visit http://localhost:8080/admin/login.php
+
+# 5. Run repository verification
+php verify.php
+# checks syntax/tests plus migration SQL sanity for both DDL and DML files
 ```
+## E2E test harness
+
+The lazy-mint E2E smoke harness lives at `tests/test_lazy_mint_e2e.php`.
+
+Run against local dev server mode:
+
+```powershell
+php tests/test_lazy_mint_e2e.php
+```
+
+Run against deployed environment mode:
+
+```powershell
+cmd /c "set E2E_BASE_URL=https://market.rarefolio.io&& set E2E_INSECURE_TLS=1&& php tests/test_lazy_mint_e2e.php"
+```
+
+Behavior notes:
+- The harness no longer requires `mbstring`; it falls back safely when `mb_substr` is unavailable.
+- In local mode, DB-dependent assertions are skipped when `/api/v1/health` reports `data.db != ok`.
+- In external mode (`E2E_BASE_URL` set), all assertions remain strict and no DB-readiness skips are applied.
 
 ## Documentation
 

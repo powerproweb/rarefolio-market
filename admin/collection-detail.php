@@ -102,6 +102,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ->execute([$priceLovelace, $id]);
         header('Location: /admin/collection-detail.php?id=' . $id . '&flash=' . urlencode('Price updated.') . '&kind=ok');
         exit;
+    } elseif ($action === 'activate_lazy_inventory') {
+        $collectionPrice = (int)($col['primary_sale_price_lovelace'] ?? 0);
+        if ($collectionPrice <= 0) {
+            $flash = 'Set a primary sale price above 0 before activating lazy-mint inventory.';
+            $flashKind = 'error';
+        } elseif (empty($col['split_wallet_addr'])) {
+            $flash = 'Set and refresh a split wallet address before activating lazy-mint inventory.';
+            $flashKind = 'error';
+        } else {
+            $pendingStmt = $pdo->prepare(
+                "SELECT COUNT(*)
+                 FROM qd_tokens
+                 WHERE collection_slug = ?
+                   AND primary_sale_status = 'unminted'
+                   AND listing_status = 'none'"
+            );
+            $pendingStmt->execute([$col['slug']]);
+            $pendingCount = (int)$pendingStmt->fetchColumn();
+
+            if ($pendingCount <= 0) {
+                header('Location: /admin/collection-detail.php?id=' . $id . '&flash=' . urlencode('No inactive unminted tokens found for activation.') . '&kind=warn');
+                exit;
+            }
+
+            $updateStmt = $pdo->prepare(
+                "UPDATE qd_tokens
+                 SET listing_status = 'listed_fixed', updated_at = NOW()
+                 WHERE collection_slug = ?
+                   AND primary_sale_status = 'unminted'
+                   AND listing_status = 'none'"
+            );
+            $updateStmt->execute([$col['slug']]);
+            $activated = (int)$updateStmt->rowCount();
+
+            header('Location: /admin/collection-detail.php?id=' . $id . '&flash=' . urlencode('Lazy-mint inventory activation complete: ' . $activated . ' token(s) set to listed_fixed.') . '&kind=ok');
+            exit;
+        }
 
     } elseif ($action === 'lock_policy') {
         $slot = (int)($_POST['lock_slot'] ?? 0);
@@ -161,6 +198,28 @@ $sidecar      = new SidecarClient();
 $balanceData  = null;
 $envKey       = $col['split_wallet_env_key'] ?: $col['policy_env_key'];
 try { $balanceData = $sidecar->getSweepBalance($envKey); } catch (Throwable) {}
+$lazyMintStats = [
+    'unminted_total'    => 0,
+    'unminted_active'   => 0,
+    'unminted_inactive' => 0,
+];
+try {
+    $lmStmt = $pdo->prepare("
+        SELECT
+            SUM(primary_sale_status = 'unminted')                                     AS unminted_total,
+            SUM(primary_sale_status = 'unminted' AND listing_status = 'listed_fixed') AS unminted_active,
+            SUM(primary_sale_status = 'unminted' AND listing_status = 'none')         AS unminted_inactive
+        FROM qd_tokens
+        WHERE collection_slug = ?
+    ");
+    $lmStmt->execute([$col['slug']]);
+    $lmRow = $lmStmt->fetch() ?: [];
+    $lazyMintStats = [
+        'unminted_total'    => (int)($lmRow['unminted_total'] ?? 0),
+        'unminted_active'   => (int)($lmRow['unminted_active'] ?? 0),
+        'unminted_inactive' => (int)($lmRow['unminted_inactive'] ?? 0),
+    ];
+} catch (Throwable) {}
 
 $pageTitle = 'Collection: ' . $col['name'] . ' — RareFolio admin';
 require __DIR__ . '/includes/header.php';
@@ -235,6 +294,36 @@ require __DIR__ . '/includes/header.php';
         </p>
     <?php endif; ?>
 </form>
+<!-- Lazy-mint activation -->
+<h2>Lazy-mint inventory activation</h2>
+<p class="rf-mono" style="font-size:.8rem;color:var(--rf-muted);margin-top:0">
+    Activate unminted tokens for buy-page visibility without pre-minting.
+</p>
+<table class="rf-table" style="max-width:560px">
+    <tr><th>Unminted total</th>    <td class="rf-mono"><?= (int)$lazyMintStats['unminted_total'] ?></td></tr>
+    <tr><th>Already active</th>    <td class="rf-mono"><?= (int)$lazyMintStats['unminted_active'] ?></td></tr>
+    <tr><th>Ready to activate</th> <td class="rf-mono"><?= (int)$lazyMintStats['unminted_inactive'] ?></td></tr>
+</table>
+<form method="post" class="rf-form" style="max-width:560px;margin-top:0.75rem">
+    <input type="hidden" name="action" value="activate_lazy_inventory">
+    <button class="rf-btn" type="submit"
+            <?= ((int)$lazyMintStats['unminted_inactive'] <= 0 || (int)($col['primary_sale_price_lovelace'] ?? 0) <= 0 || empty($col['split_wallet_addr'])) ? 'disabled' : '' ?>>
+        Activate unminted inventory
+    </button>
+</form>
+<?php if ((int)($col['primary_sale_price_lovelace'] ?? 0) <= 0): ?>
+    <p class="rf-mono" style="font-size:.8rem;color:var(--rf-warn);margin-top:.4rem">
+        Set a collection price above 0 before activation.
+    </p>
+<?php elseif (empty($col['split_wallet_addr'])): ?>
+    <p class="rf-mono" style="font-size:.8rem;color:var(--rf-warn);margin-top:.4rem">
+        Refresh or set the split wallet address before activation.
+    </p>
+<?php elseif ((int)$lazyMintStats['unminted_inactive'] <= 0): ?>
+    <p class="rf-mono" style="font-size:.8rem;color:var(--rf-ok);margin-top:.4rem">
+        All unminted tokens are already active.
+    </p>
+<?php endif; ?>
 
 <!-- Policy lock -->
 <h2>Policy lock (supply cap)</h2>

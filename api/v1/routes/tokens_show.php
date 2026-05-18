@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 use RareFolio\Api\Response;
 use RareFolio\Api\Validator;
+use RareFolio\Blockfrost\Client as BlockfrostClient;
 use RareFolio\Config;
 use RareFolio\Db;
 
@@ -23,6 +24,100 @@ try {
     exit;
 }
 
+/**
+ * @param array<string,mixed> $decoded
+ * @return array<string,mixed>
+ */
+function resolveCip25TokenMetadata(
+    array $decoded,
+    string $policyId,
+    string $assetNameUtf8,
+    string $assetNameHex,
+    string $tokenId
+): array {
+    if (!isset($decoded['721']) || !is_array($decoded['721'])) {
+        return $decoded;
+    }
+
+    $v721 = $decoded['721'];
+    $policyCandidates = [];
+    foreach ([$policyId, strtolower($policyId), strtoupper($policyId)] as $candidate) {
+        if (is_string($candidate) && $candidate !== '' && !in_array($candidate, $policyCandidates, true)) {
+            $policyCandidates[] = $candidate;
+        }
+    }
+    foreach ($v721 as $policyKey => $policyBlock) {
+        if ($policyKey === 'version' || !is_array($policyBlock)) {
+            continue;
+        }
+        $pk = (string) $policyKey;
+        if (!in_array($pk, $policyCandidates, true)) {
+            $policyCandidates[] = $pk;
+        }
+    }
+
+    $assetCandidates = [];
+    foreach ([$assetNameUtf8, $tokenId, $assetNameHex, strtolower($assetNameHex), strtoupper($assetNameHex)] as $candidate) {
+        if (is_string($candidate) && $candidate !== '' && !in_array($candidate, $assetCandidates, true)) {
+            $assetCandidates[] = $candidate;
+        }
+    }
+
+    foreach ($policyCandidates as $policyKey) {
+        $policyBlock = $v721[$policyKey] ?? null;
+        if (!is_array($policyBlock)) {
+            continue;
+        }
+        foreach ($assetCandidates as $assetKey) {
+            $assetMeta = $policyBlock[$assetKey] ?? null;
+            if (is_array($assetMeta)) {
+                return $assetMeta;
+            }
+        }
+        foreach ($policyBlock as $assetMeta) {
+            if (is_array($assetMeta)) {
+                return $assetMeta;
+            }
+        }
+    }
+
+    return $decoded;
+}
+
+/**
+ * @param array<string,mixed> $meta
+ */
+function cip25AttributeValue(array $meta, string $key): mixed
+{
+    $attrs = $meta['attributes'] ?? null;
+    if (!is_array($attrs)) {
+        return null;
+    }
+
+    if (array_keys($attrs) !== range(0, count($attrs) - 1)) {
+        return $attrs[$key] ?? null;
+    }
+
+    $target = strtolower(trim($key));
+    foreach ($attrs as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $trait = firstStringValue([
+            $item['trait_type'] ?? null,
+            $item['trait'] ?? null,
+            $item['name'] ?? null,
+            $item['key'] ?? null,
+        ]);
+        if ($trait === null || strtolower($trait) !== $target) {
+            continue;
+        }
+        return $item['value'] ?? $item['val'] ?? $item['data'] ?? null;
+    }
+
+    return null;
+}
+
 if (!Config::get('DB_NAME') || !Config::get('DB_USER')) {
     Response::error(503, 'database not configured');
     exit;
@@ -32,27 +127,31 @@ try {
     $pdo = Db::pdo();
     $stmt = $pdo->prepare('
         SELECT
-            rarefolio_token_id,
-            policy_id,
-            asset_name_hex,
-            asset_name_utf8,
-            asset_fingerprint,
-            collection_slug,
-            title,
-            character_name,
-            edition,
-            artist,
-            mint_tx_hash,
-            minted_at,
-            current_owner_wallet,
-            custody_status,
-            listing_status,
-            primary_sale_status,
-            secondary_eligible,
-            cip25_json,
-            updated_at
-        FROM qd_tokens
-        WHERE rarefolio_token_id = :id
+            t.rarefolio_token_id,
+            t.policy_id,
+            t.asset_name_hex,
+            t.asset_name_utf8,
+            t.asset_fingerprint,
+            t.collection_slug,
+            c.network AS collection_network,
+            c.primary_sale_price_lovelace AS collection_price,
+            t.title,
+            t.character_name,
+            t.edition,
+            t.artist,
+            t.mint_tx_hash,
+            t.minted_at,
+            t.current_owner_wallet,
+            t.custody_status,
+            t.listing_status,
+            t.primary_sale_status,
+            t.secondary_eligible,
+            t.cip25_json,
+            t.updated_at
+        FROM qd_tokens t
+        LEFT JOIN qd_collections c
+            ON c.slug = t.collection_slug
+        WHERE t.rarefolio_token_id = :id
         LIMIT 1
     ');
     $stmt->execute([':id' => $cnftId]);
@@ -67,17 +166,28 @@ if (!$row) {
     Response::notFound('token not found: ' . $cnftId);
     exit;
 }
+hydrateChainFieldsIfMissing($pdo, $row);
 
 // Try to pull bar_serial from CIP-25 attributes; fall back to null if unknown.
 $barSerial = null;
 $cip25 = null;
 if (!empty($row['cip25_json'])) {
-    $cip25 = json_decode((string) $row['cip25_json'], true) ?: null;
+    $decoded = json_decode((string) $row['cip25_json'], true) ?: null;
+    $cip25 = is_array($decoded)
+        ? resolveCip25TokenMetadata(
+            $decoded,
+            (string) ($row['policy_id'] ?? ''),
+            (string) ($row['asset_name_utf8'] ?? ''),
+            (string) ($row['asset_name_hex'] ?? ''),
+            (string) ($row['rarefolio_token_id'] ?? '')
+        )
+        : null;
     if (is_array($cip25)) {
         $candidates = [
             $cip25['bar_serial']              ?? null,
             $cip25['attributes']['bar_serial']?? null,
             $cip25['properties']['bar_serial']?? null,
+            cip25AttributeValue($cip25, 'bar_serial'),
         ];
         foreach ($candidates as $c) {
             if (is_string($c) && $c !== '') { $barSerial = $c; break; }
@@ -85,7 +195,101 @@ if (!empty($row['cip25_json'])) {
     }
 }
 
-$network = (string) Config::get('BLOCKFROST_NETWORK', 'preprod');
+$proofManifestUri = null;
+$proofEvidenceUrl = null;
+$companionAssetName = null;
+$companionTxHash = null;
+$companionStatus = null;
+$companionEnabledFlag = null;
+if (is_array($cip25)) {
+    $proofManifestUri = firstStringValue([
+        $cip25['proof_manifest_uri'] ?? null,
+        $cip25['proof_manifest'] ?? null,
+        $cip25['manifest_uri'] ?? null,
+        $cip25['proof']['manifest_uri'] ?? null,
+        $cip25['attributes']['proof_manifest_uri'] ?? null,
+        cip25AttributeValue($cip25, 'proof_manifest_uri'),
+        cip25AttributeValue($cip25, 'manifest_uri'),
+    ]);
+    $proofEvidenceUrl = firstStringValue([
+        $cip25['evidence_public_url'] ?? null,
+        $cip25['proof_evidence_url'] ?? null,
+        $cip25['proof']['evidence_public_url'] ?? null,
+        $cip25['evidence']['public_url'] ?? null,
+        $cip25['attributes']['evidence_public_url'] ?? null,
+        cip25AttributeValue($cip25, 'evidence_public_url'),
+        cip25AttributeValue($cip25, 'proof_evidence_url'),
+    ]);
+    $companionAssetName = firstStringValue([
+        $cip25['companion_asset_name'] ?? null,
+        $cip25['companion']['asset_name'] ?? null,
+        $cip25['attributes']['companion_asset_name'] ?? null,
+        $cip25['silver_shard_name'] ?? null,
+        $cip25['silver_shard_asset_name_utf8'] ?? null,
+        $cip25['attributes']['silver_shard_name'] ?? null,
+        cip25AttributeValue($cip25, 'companion_asset_name'),
+        cip25AttributeValue($cip25, 'silver_shard_name'),
+        cip25AttributeValue($cip25, 'silver_shard_asset_name_utf8'),
+    ]);
+    $companionTxHash = firstStringValue([
+        $cip25['companion_tx_hash'] ?? null,
+        $cip25['companion']['tx_hash'] ?? null,
+        $cip25['attributes']['companion_tx_hash'] ?? null,
+        $cip25['silver_shard_mint_tx_hash'] ?? null,
+        $cip25['attributes']['silver_shard_mint_tx_hash'] ?? null,
+        cip25AttributeValue($cip25, 'companion_tx_hash'),
+        cip25AttributeValue($cip25, 'silver_shard_mint_tx_hash'),
+    ]);
+    $companionStatus = firstStringValue([
+        $cip25['companion_status'] ?? null,
+        $cip25['companion']['status'] ?? null,
+        $cip25['companion']['delivery']['status'] ?? null,
+        $cip25['attributes']['companion_status'] ?? null,
+        cip25AttributeValue($cip25, 'companion_status'),
+    ]);
+    $companionEnabledFlag = firstBoolValue([
+        $cip25['companion_enabled'] ?? null,
+        $cip25['companion']['enabled'] ?? null,
+        $cip25['attributes']['companion_enabled'] ?? null,
+        $cip25['silver_shard_enabled'] ?? null,
+        $cip25['attributes']['silver_shard_enabled'] ?? null,
+        cip25AttributeValue($cip25, 'companion_enabled'),
+        cip25AttributeValue($cip25, 'silver_shard_enabled'),
+    ]);
+}
+$isFoundersCollection = in_array((string) $row['collection_slug'], ['silverbar-01-founders-v2', 'silverbar-01-founders'], true);
+if ($isFoundersCollection) {
+    if ($proofManifestUri === null) {
+        $proofManifestUri = 'https://rarefolio.io/assets/img/collection/scnft_founders/manifest.json';
+    }
+    if ($proofEvidenceUrl === null) {
+        $proofEvidenceUrl = 'https://rarefolio.io/assets/img/collection/scnft_founders/master_sha256_hash_ipfs.md';
+    }
+    if ($companionAssetName === null) {
+        $companionAssetName = 'Actual Silver Shard';
+    }
+    if ($companionEnabledFlag === null) {
+        $companionEnabledFlag = true;
+    }
+}
+if ($companionTxHash !== null && !preg_match('/^[0-9a-f]{64}$/i', $companionTxHash)) {
+    $companionTxHash = null;
+}
+$companionEnabled = ($companionEnabledFlag === true) || $companionAssetName !== null;
+if ($companionStatus === null) {
+    $companionStatus = $companionEnabled
+        ? ($companionTxHash !== null ? 'confirmed' : 'not_queued')
+        : 'not_enabled';
+}
+
+// Runtime env is the source of truth for active network.
+// Collection-declared network is retained for diagnostics/admin drift checks.
+$runtimeNetwork = strtolower((string) Config::get('BLOCKFROST_NETWORK', 'preprod'));
+if (in_array($runtimeNetwork, ['mainnet', 'preprod', 'preview'], true)) {
+    $network = $runtimeNetwork;
+} else {
+    $network = (string) ($row['collection_network'] ?? 'preprod');
+}
 
 // Redact wallet to first/last 6 chars — full ownership is not a public field.
 $ownerDisplay = null;
@@ -95,6 +299,12 @@ if (is_string($w) && strlen($w) > 14) {
 } elseif (is_string($w) && $w !== '') {
     $ownerDisplay = $w;
 }
+
+$collectionPrice = (int) ($row['collection_price'] ?? 0);
+$isOnDemand = $row['primary_sale_status'] === 'unminted'
+    && in_array((string) $row['listing_status'], ['listed_fixed', 'listed_auction', 'offer_only'], true)
+    && $collectionPrice > 0;
+$mintMode = $isOnDemand ? 'on_demand' : 'pre_minted';
 
 Response::ok([
     'cnft_id'          => $row['rarefolio_token_id'],
@@ -116,9 +326,114 @@ Response::ok([
     'status'           => [
         'primary_sale'      => $row['primary_sale_status'],
         'listing'           => $row['listing_status'],
+        'mint_mode'         => $mintMode,
         'custody'           => $row['custody_status'],
         'secondary_eligible'=> (bool) ((int) $row['secondary_eligible']),
     ],
     'owner_display'    => $ownerDisplay,
+    'companion'        => [
+        'enabled'    => $companionEnabled,
+        'asset_name' => $companionAssetName,
+        'delivery'   => [
+            'status'  => $companionStatus,
+            'tx_hash' => $companionTxHash,
+        ],
+    ],
+    'proof'            => [
+        'manifest_uri'        => $proofManifestUri,
+        'evidence_public_url' => $proofEvidenceUrl,
+    ],
     'updated_at'       => $row['updated_at'],
 ]);
+
+/**
+ * @param array<string,mixed> $row
+ */
+function hydrateChainFieldsIfMissing(PDO $pdo, array &$row): void
+{
+    $primary = (string) ($row['primary_sale_status'] ?? '');
+    if (!in_array($primary, ['minted', 'sold', 'sold_pre_marketplace'], true)) {
+        return;
+    }
+
+    $policyId = strtolower((string) ($row['policy_id'] ?? ''));
+    $assetHex = strtolower((string) ($row['asset_name_hex'] ?? ''));
+    if (!preg_match('/^[0-9a-f]{56}$/', $policyId) || !preg_match('/^[0-9a-f]+$/', $assetHex)) {
+        return;
+    }
+
+    $needsFingerprint = !is_string($row['asset_fingerprint']) || trim((string) $row['asset_fingerprint']) === '';
+    $needsOwner = !is_string($row['current_owner_wallet']) || trim((string) $row['current_owner_wallet']) === '';
+    if (!$needsFingerprint && !$needsOwner) {
+        return;
+    }
+
+    try {
+        $bf = new BlockfrostClient();
+        $unit = $policyId . $assetHex;
+        $asset = $bf->asset($unit);
+        $fingerprint = is_array($asset) && !empty($asset['fingerprint']) ? (string) $asset['fingerprint'] : null;
+        $owner = $bf->currentOwner($unit);
+
+        $setParts = [];
+        $binds = [':token_id' => (string) $row['rarefolio_token_id']];
+
+        if ($needsFingerprint && $fingerprint !== null && $fingerprint !== '') {
+            $row['asset_fingerprint'] = $fingerprint;
+            $setParts[] = 'asset_fingerprint = :fingerprint';
+            $binds[':fingerprint'] = $fingerprint;
+        }
+
+        if ($owner !== null && $owner !== '' && ((string) ($row['current_owner_wallet'] ?? '') !== $owner)) {
+            $row['current_owner_wallet'] = $owner;
+            $setParts[] = 'current_owner_wallet = :owner_wallet';
+            $binds[':owner_wallet'] = $owner;
+        }
+
+        if ($setParts !== []) {
+            $setParts[] = 'updated_at = NOW()';
+            $sql = 'UPDATE qd_tokens SET ' . implode(', ', $setParts) . ' WHERE rarefolio_token_id = :token_id LIMIT 1';
+            $pdo->prepare($sql)->execute($binds);
+        }
+    } catch (Throwable $e) {
+        error_log('[api v1 tokens_show hydrate] ' . $e->getMessage());
+    }
+}
+
+/**
+ * @param array<int,mixed> $candidates
+ */
+function firstStringValue(array $candidates): ?string
+{
+    foreach ($candidates as $value) {
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed !== '') {
+                return $trimmed;
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * @param array<int,mixed> $candidates
+ */
+function firstBoolValue(array $candidates): ?bool
+{
+    foreach ($candidates as $value) {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value)) {
+            if ($value === 1) return true;
+            if ($value === 0) return false;
+        }
+        if (is_string($value)) {
+            $v = strtolower(trim($value));
+            if (in_array($v, ['1', 'true', 'yes', 'on'], true)) return true;
+            if (in_array($v, ['0', 'false', 'no', 'off'], true)) return false;
+        }
+    }
+    return null;
+}

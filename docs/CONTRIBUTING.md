@@ -67,6 +67,7 @@ php tests/test_webhook_signer.php
 php tests/test_founders_seed_static.php
 php tests/test_env_pair.php
 php tests/test_api_router.php
+php verify.php
 
 # TypeScript typecheck
 cd sidecar
@@ -75,6 +76,9 @@ npm run typecheck
 
 No test runner is configured yet — each test file exits 0 on pass, 1 on fail
 and prints pass/fail lines to stdout.
+
+`verify.php` also validates migration files and accepts executable schema and
+data migrations (DDL or DML), not only `CREATE TABLE` statements.
 
 ---
 

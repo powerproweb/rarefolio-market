@@ -14,6 +14,24 @@ require_once __DIR__ . '/../src/Db.php';
 
 use RareFolio\Config;
 use RareFolio\Db;
+function migrationLog(string $message, bool $error = false): void
+{
+    $line = rtrim($message, "\r\n") . "\n";
+    if ($error && defined('STDERR')) {
+        fwrite(STDERR, $line);
+        return;
+    }
+    if (!$error && defined('STDOUT')) {
+        fwrite(STDOUT, $line);
+        return;
+    }
+    echo $line;
+}
+
+function hasUnresolvedPlaceholderGuard(string $sql): bool
+{
+    return preg_match("/'REPLACE_[A-Z0-9_]+'/", $sql) === 1;
+}
 
 Config::load(__DIR__ . '/../.env');
 $pdo = Db::pdo();
@@ -36,13 +54,17 @@ $ran = 0;
 foreach ($files as $file) {
     $name = basename($file);
     if (isset($applied[$name])) {
-        fwrite(STDOUT, "skip  $name (already applied)\n");
+        migrationLog("skip  $name (already applied)");
         continue;
     }
 
     $sql = file_get_contents($file);
     if ($sql === false || trim($sql) === '') {
-        fwrite(STDERR, "skip  $name (empty or unreadable)\n");
+        migrationLog("skip  $name (empty or unreadable)", true);
+        continue;
+    }
+    if (hasUnresolvedPlaceholderGuard($sql)) {
+        migrationLog("skip  $name (contains unresolved REPLACE_* placeholders)");
         continue;
     }
 
@@ -57,15 +79,20 @@ foreach ($files as $file) {
         if ($pdo->inTransaction()) {
             $pdo->commit();
         }
-        fwrite(STDOUT, "ok    $name\n");
+        migrationLog("ok    $name");
         $ran++;
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        fwrite(STDERR, "FAIL  $name: {$e->getMessage()}\n");
-        exit(1);
+        $message = "FAIL  $name: {$e->getMessage()}";
+        migrationLog($message, true);
+        if (PHP_SAPI === 'cli') {
+            exit(1);
+        }
+        throw new RuntimeException($message, 0, $e);
     }
 }
 
-fwrite(STDOUT, "\nDone. Applied $ran migration(s).\n");
+migrationLog('');
+migrationLog("Done. Applied $ran migration(s).");

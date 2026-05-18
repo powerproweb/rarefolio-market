@@ -1,30 +1,49 @@
-# Env
+# -----------------------------------------------------------------------------
+# Secrets and local environment files
+# -----------------------------------------------------------------------------
 .env
 .env.*
 !.env.example
-sidecar/.env
-sidecar/.env.*
-!sidecar/.env.example
+!**/.env.example
 
+# -----------------------------------------------------------------------------
 # Dependencies
-vendor/
+# -----------------------------------------------------------------------------
+node_modules/
 sidecar/node_modules/
-sidecar/dist/
 
-# Logs
-*.log
-logs/
-
-# Presales ledger (sensitive buyer info — keep off git)
-qd_presales.csv
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-Thumbs.db
-.DS_Store
-
-# Deployment artifacts
+# -----------------------------------------------------------------------------
+# Build outputs and caches
+# -----------------------------------------------------------------------------
 dist/
+build/
+coverage/
+*.tsbuildinfo
+.cache/
+
+# -----------------------------------------------------------------------------
+# Logs and temporary files
+# -----------------------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+
+# -----------------------------------------------------------------------------
+# OS and editor files
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# -----------------------------------------------------------------------------
+# Local backup and baseline artifacts
+# -----------------------------------------------------------------------------
+db_backup_stage1_*/
+stage_baselines/

@@ -95,6 +95,16 @@ final class Client
     }
 
     /**
+     * Fetch transaction inputs/outputs for payment verification.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function txUtxos(string $txHash): ?array
+    {
+        return $this->getJson("/txs/$txHash/utxos", allow404: true);
+    }
+
+    /**
      * GET helper with auth header and JSON decoding.
      *
      * @return mixed

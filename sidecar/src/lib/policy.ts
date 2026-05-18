@@ -5,6 +5,7 @@
  *
  * Env var naming convention (set in sidecar/.env):
  *   Policy wallet:  POLICY_MNEMONIC_{KEY}  e.g. POLICY_MNEMONIC_FOUNDERS
+ *   Treasury wallet: TREASURY_MNEMONIC_{KEY} e.g. TREASURY_MNEMONIC_FOUNDERS
  *   Split wallet:   SPLIT_MNEMONIC_{KEY}   e.g. SPLIT_MNEMONIC_FOUNDERS
  *   Legacy (single collection): POLICY_MNEMONIC (no suffix)
  *
@@ -29,6 +30,10 @@ import {
 
 function networkId(): 0 | 1 {
     return process.env.BLOCKFROST_NETWORK === 'mainnet' ? 1 : 0;
+}
+
+export function hasMnemonicInEnv(envVarName: string): boolean {
+    return Boolean((process.env[envVarName] ?? '').trim());
 }
 
 function buildProvider(): BlockfrostProvider {
@@ -88,6 +93,35 @@ export function getPolicyWalletForKey(envKey?: string): AppWallet {
  */
 export function getSplitWalletForKey(envKey: string): AppWallet {
     return getOrBuildWallet(`SPLIT_MNEMONIC_${envKey.toUpperCase()}`);
+}
+
+/**
+ * Returns the treasury wallet for companion distribution.
+ *
+ * Resolution order:
+ *  1) TREASURY_MNEMONIC_{KEY}
+ *  2) SPLIT_MNEMONIC_{KEY}
+ *  3) POLICY_MNEMONIC_{KEY}
+ *  4) TREASURY_MNEMONIC
+ *  5) POLICY_MNEMONIC
+ */
+export function getTreasuryWalletForKey(envKey: string): AppWallet {
+    const key = envKey.toUpperCase();
+    const candidates = [
+        `TREASURY_MNEMONIC_${key}`,
+        `SPLIT_MNEMONIC_${key}`,
+        `POLICY_MNEMONIC_${key}`,
+        'TREASURY_MNEMONIC',
+        'POLICY_MNEMONIC',
+    ];
+    const resolved = candidates.find(hasMnemonicInEnv);
+    if (!resolved) {
+        throw new Error(
+            `No treasury mnemonic configured for env key ${key}. ` +
+            `Checked: ${candidates.join(', ')}`
+        );
+    }
+    return getOrBuildWallet(resolved);
 }
 
 // ---------------------------------------------------------------------------

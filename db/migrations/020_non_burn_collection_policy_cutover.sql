@@ -1,4 +1,5 @@
 -- Non-burn collection policy cutover (stage 1).
+-- @ops_only
 -- Purpose:
 --   1) Snapshot current collection policy fields for rollback.
 --   2) Persist new policy_env_key on the target collection.

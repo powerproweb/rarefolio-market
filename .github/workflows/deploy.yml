@@ -2,6 +2,12 @@
 #  RareFolio Marketplace — Deploy to server on push to main
 # ============================================================
 #
+#  RELEASE CONTRACT (enforced)
+#    Canonical production branch : main
+#    Auto deploy trigger         : push to main
+#    Manual deploy trigger       : workflow_dispatch on main only
+#    Other branches              : blocked by ref guard (step 1)
+#
 #  Server: same BlueHost VPS as rarefolio.io (50.6.202.60)
 #
 #  Required GitHub repository secrets (Settings → Secrets → Actions):
@@ -24,13 +30,14 @@
 #  protected by DEPLOY_WEBHOOK_SECRET.
 #
 #  What this workflow does:
-#    1. Sync PHP application files via lftp SFTP mirror
-#    2. Trigger DB migrations via HTTPS (admin/run-migrations.php)
-#    3. Rebuild/restart sidecar when sidecar source changes
-#    4. Verify marketplace health via public API
+#    1. Verify deploy ref is the canonical production branch
+#    2. Sync PHP application files via lftp SFTP mirror
+#    3. Trigger DB migrations via HTTPS (admin/run-migrations.php)
+#    4. Rebuild/restart sidecar (always, not conditional)
+#    5. Verify marketplace + sidecar health via public API + localhost probes
 #
 #  Trigger manually:
-#    GitHub → Actions → Deploy marketplace → Run workflow
+#    GitHub → Actions → Deploy marketplace → Run workflow (main only)
 # ============================================================
 
 name: Deploy marketplace
@@ -47,8 +54,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ---- 0. Ref guard: only deploy from canonical production branch ------
+      - name: Verify deploy ref is canonical production branch
+        run: |
+          CANONICAL_BRANCH="main"
+          REF="${{ github.ref }}"
+          echo "Deploy ref: $REF"
+          if [ "$REF" != "refs/heads/$CANONICAL_BRANCH" ]; then
+            echo "::error::Deploy blocked: ref '$REF' is not the canonical production branch '$CANONICAL_BRANCH'."
+            echo "Only pushes to '$CANONICAL_BRANCH' or manual dispatches on '$CANONICAL_BRANCH' are allowed."
+            exit 1
+          fi
+          echo "Ref guard passed: deploying from $CANONICAL_BRANCH"
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate migration contract
+        run: php scripts/validate-migration-contract.php
 
       - name: Resolve SFTP host
         id: sftp_host
@@ -166,12 +189,12 @@ jobs:
 
       # ---- 2. DB migrations via HTTP (no shell required) --------------------
       #  Calls admin/run-migrations.php over HTTPS, authenticated by
-      #  DEPLOY_WEBHOOK_SECRET. Safe to skip if secret not yet configured.
+      #  DEPLOY_WEBHOOK_SECRET. This is required for production deploys.
       - name: Run DB migrations
         run: |
           if [ -z "${{ secrets.DEPLOY_WEBHOOK_SECRET }}" ]; then
-            echo "DEPLOY_WEBHOOK_SECRET not configured; skipping migration trigger"
-            exit 0
+            echo "DEPLOY_WEBHOOK_SECRET not configured; refusing production deploy"
+            exit 1
           fi
           HTTP_CODE=$(curl -sS \
             -o /tmp/migration_response.json \
@@ -186,9 +209,10 @@ jobs:
             exit 1
           fi
       # ---- 3. Sidecar rebuild/restart + companion route gate -----------------
-      # Runs only when sidecar source changed in this deploy range.
+      # Always rebuild and restart sidecar on production deploys to prevent
+      # stale runtime drift. sidecar/dist/ is excluded from file sync, so the
+      # only way to update the running sidecar is via remote build + restart.
       - name: Rebuild/restart sidecar and verify companion route
-        if: steps.sidecar_changes.outputs.changed == 'true'
         run: |
           REMOTE_DIR="${{ steps.deploy_target.outputs.remote_dir }}"
           SSH_TARGET="${{ secrets.SFTP_USER }}@${{ steps.sftp_host.outputs.host }}"

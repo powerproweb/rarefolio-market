@@ -1,4 +1,5 @@
 -- Non-burn IPFS CID cutover (stage 2).
+-- @ops_only
 -- Purpose:
 --   1) Snapshot target rows for rollback.
 --   2) Replace old CID with new CID in qd_tokens.cip25_json.

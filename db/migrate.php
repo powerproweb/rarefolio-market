@@ -30,7 +30,17 @@ function migrationLog(string $message, bool $error = false): void
 
 function hasUnresolvedPlaceholderGuard(string $sql): bool
 {
-    return preg_match("/'REPLACE_[A-Z0-9_]+'/", $sql) === 1;
+    return preg_match("/^\s*SET\s+@[A-Za-z0-9_]+\s*:=\s*'REPLACE_[A-Z0-9_]+'\s*;/im", $sql) === 1;
+}
+
+function isOpsOnlyMigration(string $sql): bool
+{
+    return preg_match('/^\s*--\s*@ops_only\b/im', $sql) === 1;
+}
+
+function hasDynamicSqlControlStatements(string $sql): bool
+{
+    return preg_match('/^\s*(PREPARE|DEALLOCATE\s+PREPARE|EXECUTE|SIGNAL\s+SQLSTATE)\b/im', $sql) === 1;
 }
 
 Config::load(__DIR__ . '/../.env');
@@ -63,9 +73,25 @@ foreach ($files as $file) {
         migrationLog("skip  $name (empty or unreadable)", true);
         continue;
     }
-    if (hasUnresolvedPlaceholderGuard($sql)) {
-        migrationLog("skip  $name (contains unresolved REPLACE_* placeholders)");
+    if (isOpsOnlyMigration($sql)) {
+        migrationLog("skip  $name (ops-only migration)");
         continue;
+    }
+    if (hasDynamicSqlControlStatements($sql)) {
+        $message = "FAIL  $name: contains dynamic SQL control statements. Mark this migration with '-- @ops_only' and execute manually.";
+        migrationLog($message, true);
+        if (PHP_SAPI === 'cli') {
+            exit(1);
+        }
+        throw new RuntimeException($message);
+    }
+    if (hasUnresolvedPlaceholderGuard($sql)) {
+        $message = "FAIL  $name: contains unresolved REPLACE_* placeholders in an auto-run migration.";
+        migrationLog($message, true);
+        if (PHP_SAPI === 'cli') {
+            exit(1);
+        }
+        throw new RuntimeException($message);
     }
 
     try {

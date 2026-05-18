@@ -12,9 +12,9 @@
 --
 -- This migration is idempotent for rows that already contain @new_cid.
 
-SET @target_collection_slug := 'silverbar-01-founders-v2';
-SET @old_cid                := 'bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy';
-SET @new_cid                := 'bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy';
+SET @target_collection_slug := 'REPLACE_COLLECTION_SLUG';
+SET @old_cid                := 'REPLACE_OLD_CID';
+SET @new_cid                := 'REPLACE_NEW_CID';
 
 SET @guard_sql := IF(
     @target_collection_slug = 'REPLACE_COLLECTION_SLUG'
@@ -65,7 +65,7 @@ SELECT
     t.collection_slug,
     t.cip25_json
 FROM qd_tokens t
-WHERE t.collection_slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
+WHERE t.collection_slug = @target_collection_slug
   AND t.cip25_json LIKE CONCAT('%', @old_cid, '%');
 
 INSERT INTO qd_mint_queue_cid_cutover_backup
@@ -78,31 +78,31 @@ SELECT
     q.cip25_json,
     q.image_ipfs_cid
 FROM qd_mint_queue q
-WHERE q.collection_slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
+WHERE q.collection_slug = @target_collection_slug
   AND (
       q.cip25_json LIKE CONCAT('%', @old_cid, '%')
-      OR q.image_ipfs_cid = (@old_cid COLLATE utf8mb4_unicode_ci)
+      OR q.image_ipfs_cid = @old_cid
   );
 
 UPDATE qd_tokens
 SET
     cip25_json = REPLACE(cip25_json, @old_cid, @new_cid),
     updated_at = NOW()
-WHERE collection_slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
+WHERE collection_slug = @target_collection_slug
   AND cip25_json LIKE CONCAT('%', @old_cid, '%');
 
 UPDATE qd_mint_queue
 SET
     cip25_json = REPLACE(cip25_json, @old_cid, @new_cid),
     image_ipfs_cid = CASE
-        WHEN image_ipfs_cid = (@old_cid COLLATE utf8mb4_unicode_ci) THEN @new_cid
+        WHEN image_ipfs_cid = @old_cid THEN @new_cid
         ELSE image_ipfs_cid
     END,
     updated_at = NOW()
-WHERE collection_slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
+WHERE collection_slug = @target_collection_slug
   AND (
       cip25_json LIKE CONCAT('%', @old_cid, '%')
-      OR image_ipfs_cid = (@old_cid COLLATE utf8mb4_unicode_ci)
+      OR image_ipfs_cid = @old_cid
   );
 
 -- Validation gates (run manually after migration):

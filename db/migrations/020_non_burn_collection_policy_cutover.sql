@@ -13,8 +13,8 @@
 --
 -- This migration is idempotent for the target row.
 
-SET @target_collection_slug := 'silverbar-01-founders-v2';
-SET @new_policy_env_key     := 'FOUNDERS_V2';
+SET @target_collection_slug := 'REPLACE_COLLECTION_SLUG';
+SET @new_policy_env_key     := 'REPLACE_POLICY_ENV_KEY';
 SET @new_policy_id          := '';
 SET @new_policy_addr        := '';
 
@@ -54,7 +54,7 @@ SELECT
     c.policy_id,
     c.policy_addr
 FROM qd_collections c
-WHERE c.slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci);
+WHERE c.slug = @target_collection_slug;
 
 INSERT INTO qd_collections
     (slug, name, network, policy_env_key, lock_status, edition_size, primary_minted_count, all_primary_minted, created_at, updated_at)
@@ -70,7 +70,7 @@ SELECT
     NOW(),
     NOW()
 WHERE NOT EXISTS (
-    SELECT 1 FROM qd_collections c WHERE c.slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
+    SELECT 1 FROM qd_collections c WHERE c.slug = @target_collection_slug
 );
 
 UPDATE qd_collections
@@ -85,7 +85,7 @@ SET
         ELSE policy_addr
     END,
     updated_at = NOW()
-WHERE slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci);
+WHERE slug = @target_collection_slug;
 
 -- Validation gates (run manually after migration):
 -- SELECT slug, policy_env_key, policy_id, policy_addr

@@ -6,6 +6,7 @@
  *
  * Auth:
  *   Authorization: Bearer <DOWNLOAD_VERIFY_SHARED_SECRET>
+ *   (fallback accepted: X-RF-Verify-Secret: <DOWNLOAD_VERIFY_SHARED_SECRET>)
  *
  * Body:
  *   {
@@ -46,12 +47,44 @@ function fail_json(int $code, string $message): void
     exit;
 }
 
-function bearer_token(): string
+function request_header_value(string $name): string
 {
-    $raw = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
-    if (!is_string($raw) || $raw === '') return '';
-    if (!preg_match('/^\s*Bearer\s+(.+)\s*$/i', $raw, $m)) return '';
-    return trim($m[1]);
+    $serverKey = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
+    $candidates = [$serverKey, 'REDIRECT_' . $serverKey];
+    foreach ($candidates as $key) {
+        $value = $_SERVER[$key] ?? null;
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    if (function_exists('getallheaders')) {
+        foreach ((array) getallheaders() as $headerName => $headerValue) {
+            if (is_string($headerName) && strcasecmp($headerName, $name) === 0 && is_string($headerValue) && trim($headerValue) !== '') {
+                return trim($headerValue);
+            }
+        }
+    }
+
+    return '';
+}
+
+function request_shared_secret(): string
+{
+    $auth = request_header_value('Authorization');
+    if ($auth !== '' && preg_match('/^\s*Bearer\s+(.+)\s*$/i', $auth, $m)) {
+        return trim($m[1]);
+    }
+
+    $fallbacks = ['X-RF-Verify-Secret', 'X-Download-Verify-Secret'];
+    foreach ($fallbacks as $header) {
+        $value = request_header_value($header);
+        if ($value !== '') {
+            return $value;
+        }
+    }
+
+    return '';
 }
 
 function post_json(string $url, array $payload, array $headers = []): array
@@ -261,7 +294,7 @@ if ($secret === '') {
     fail_json(503, 'DOWNLOAD_VERIFY_SHARED_SECRET not configured');
 }
 
-$token = bearer_token();
+$token = request_shared_secret();
 if ($token === '' || !hash_equals($secret, $token)) {
     fail_json(401, 'unauthorized');
 }

@@ -12,6 +12,7 @@
  */
 const BASE          = process.env.SIDECAR_BASE_URL || 'http://localhost:4000';
 const POLICY_READY  = Boolean(process.env.POLICY_MNEMONIC?.trim());
+const COMPANION_TEST_ENV_KEY = (process.env.COMPANION_TEST_ENV_KEY || '').trim().toUpperCase();
 
 let pass = 0;
 let fail = 0;
@@ -166,6 +167,40 @@ await test('GET /handle/:h on non-mainnet returns note or resolved_addr', async 
         expect(/mainnet/i.test(j.note), 'expected mainnet note on non-mainnet');
     }
 });
+
+// -----------------------------------------------------------------------
+// /companion
+// -----------------------------------------------------------------------
+await test('GET /companion/treasury/:envKey/balance with invalid env key returns 400', async () => {
+    const r = await fetch(`${BASE}/companion/treasury/INVALID-ENV-KEY/balance`);
+    expect(r.status === 400, `expected 400 got ${r.status}`);
+});
+
+await test('POST /companion/transfer with missing fields returns 400', async () => {
+    const r = await fetch(`${BASE}/companion/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ treasury_env_key: 'FOUNDERS' }),
+    });
+    expect(r.status === 400, `expected 400 got ${r.status}`);
+});
+
+if (COMPANION_TEST_ENV_KEY) {
+    await test('GET /companion/treasury/:envKey/balance route is available for configured key', async () => {
+        const r = await fetch(`${BASE}/companion/treasury/${encodeURIComponent(COMPANION_TEST_ENV_KEY)}/balance`);
+        expect(r.status !== 404, `unexpected 404 for ${COMPANION_TEST_ENV_KEY}`);
+        if (r.status === 200) {
+            const j = await r.json();
+            expect(j.env_key === COMPANION_TEST_ENV_KEY, `env_key mismatch: ${j.env_key}`);
+            expect(typeof j.balance_lovelace === 'number', 'missing balance_lovelace');
+        } else {
+            const txt = await r.text();
+            expect(txt.length > 0, `expected non-empty error body, got status ${r.status}`);
+        }
+    });
+} else {
+    skipTest('GET /companion/treasury/:envKey/balance configured-key check', 'COMPANION_TEST_ENV_KEY not set');
+}
 
 console.log(`\nResults: ${pass} passed, ${fail} failed, ${skip} skipped`);
 if (fail > 0) {

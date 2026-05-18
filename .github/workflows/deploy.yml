@@ -22,12 +22,12 @@
 #  File sync uses the SFTP subsystem (no shell needed).
 #  DB migrations are triggered via an HTTP endpoint (admin/run-migrations.php)
 #  protected by DEPLOY_WEBHOOK_SECRET.
-#  Sidecar rebuild/restart must be done manually until shell access is enabled.
 #
 #  What this workflow does:
 #    1. Sync PHP application files via lftp SFTP mirror
 #    2. Trigger DB migrations via HTTPS (admin/run-migrations.php)
-#    3. Verify marketplace health via public API
+#    3. Rebuild/restart sidecar when sidecar source changes
+#    4. Verify marketplace health via public API
 #
 #  Trigger manually:
 #    GitHub → Actions → Deploy marketplace → Run workflow
@@ -90,6 +90,26 @@ jobs:
             exit 1
           fi
           echo "remote_dir=$REMOTE_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Detect sidecar source changes
+        id: sidecar_changes
+        run: |
+          BASE_SHA="${{ github.event.before }}"
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+              BASE_SHA="$(git rev-parse HEAD~1)"
+            else
+              BASE_SHA="$(git rev-parse HEAD)"
+            fi
+          fi
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          if git diff --name-only "$BASE_SHA" "${{ github.sha }}" | grep -qE '^sidecar/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "sidecar source changes detected"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "no sidecar source changes detected"
+          fi
 
       - name: Probe SFTP authentication
         run: |
@@ -165,8 +185,55 @@ jobs:
             echo "Migration trigger failed"
             exit 1
           fi
+      # ---- 3. Sidecar rebuild/restart + companion route gate -----------------
+      # Runs only when sidecar source changed in this deploy range.
+      - name: Rebuild/restart sidecar and verify companion route
+        if: steps.sidecar_changes.outputs.changed == 'true'
+        run: |
+          REMOTE_DIR="${{ steps.deploy_target.outputs.remote_dir }}"
+          SSH_TARGET="${{ secrets.SFTP_USER }}@${{ steps.sftp_host.outputs.host }}"
+          timeout 300s ssh \
+            -oBatchMode=yes \
+            -oStrictHostKeyChecking=no \
+            -oConnectTimeout=20 \
+            -i ~/.ssh/deploy_key \
+            -p 22 \
+            "$SSH_TARGET" \
+            "set -euo pipefail
+             cd '$REMOTE_DIR/sidecar'
+             if [ -f package-lock.json ]; then npm ci; else npm install; fi
+             npm run build
 
-      # ---- 3. Health check via public API ----------------------------------
+             restart_ok=0
+             if command -v sudo >/dev/null 2>&1 && sudo -n systemctl restart rarefolio-sidecar >/dev/null 2>&1; then
+               restart_ok=1
+             elif command -v systemctl >/dev/null 2>&1 && systemctl restart rarefolio-sidecar >/dev/null 2>&1; then
+               restart_ok=1
+             elif command -v systemctl >/dev/null 2>&1 && systemctl --user restart rarefolio-sidecar >/dev/null 2>&1; then
+               restart_ok=1
+             elif command -v pm2 >/dev/null 2>&1 && pm2 restart rarefolio-sidecar >/dev/null 2>&1; then
+               restart_ok=1
+             fi
+             if [ \"\$restart_ok\" != \"1\" ]; then
+               echo 'unable to restart sidecar process manager (systemctl or pm2)'
+               exit 1
+             fi
+
+             curl -fsS http://127.0.0.1:4000/health >/tmp/rf-sidecar-health.json
+             PROBE_CODE=\$(curl -sS -o /tmp/rf-companion-route.json -w '%{http_code}' \
+               http://127.0.0.1:4000/companion/treasury/INVALID-ENV-KEY/balance || true)
+             if [ \"\$PROBE_CODE\" != \"400\" ]; then
+               echo \"companion route probe expected HTTP 400, got \$PROBE_CODE\"
+               cat /tmp/rf-companion-route.json || true
+               exit 1
+             fi
+             echo 'sidecar health:'
+             cat /tmp/rf-sidecar-health.json
+             echo 'companion route probe:'
+             cat /tmp/rf-companion-route.json
+            "
+
+      # ---- 4. Health check via public API -----------------------------------
       - name: Health check
         run: |
           for i in $(seq 1 10); do
@@ -181,11 +248,3 @@ jobs:
           done
           echo "Health check failed after 10 attempts"
           exit 1
-
-      # ---- NOTE: Sidecar rebuild/restart ----------------------------------
-      #  BlueHost shell access is disabled for this account.
-      #  Sidecar changes require manual rebuild:
-      #    1. Enable shell in cPanel → SSH Access → Manage Shell Access
-      #    2. Run: bash scripts/rf-deploy.sh  (or npm ci && npm run build)
-      #  To re-enable automated sidecar deploys, add SSH shell access and
-      #  restore the SSH steps from git history.

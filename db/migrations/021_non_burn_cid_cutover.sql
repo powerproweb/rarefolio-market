@@ -12,9 +12,9 @@
 --
 -- This migration is idempotent for rows that already contain @new_cid.
 
-SET @target_collection_slug := 'REPLACE_COLLECTION_SLUG';
-SET @old_cid                := 'REPLACE_OLD_CID';
-SET @new_cid                := 'REPLACE_NEW_CID';
+SET @target_collection_slug := 'silverbar-01-founders-v2';
+SET @old_cid                := 'bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy';
+SET @new_cid                := 'bafybeigcsosusr5dvsgfkn4ox3sgqyr3gzmd4cal32guxijygxzpd5x6vy';
 
 SET @guard_sql := IF(
     @target_collection_slug = 'REPLACE_COLLECTION_SLUG'

@@ -13,8 +13,8 @@
 --
 -- This migration is idempotent for the target row.
 
-SET @target_collection_slug := 'REPLACE_COLLECTION_SLUG';
-SET @new_policy_env_key     := 'REPLACE_POLICY_ENV_KEY';
+SET @target_collection_slug := 'silverbar-01-founders-v2';
+SET @new_policy_env_key     := 'FOUNDERS_V2';
 SET @new_policy_id          := '';
 SET @new_policy_addr        := '';
 

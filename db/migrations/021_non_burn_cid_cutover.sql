@@ -65,7 +65,7 @@ SELECT
     t.collection_slug,
     t.cip25_json
 FROM qd_tokens t
-WHERE t.collection_slug = @target_collection_slug
+WHERE t.collection_slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
   AND t.cip25_json LIKE CONCAT('%', @old_cid, '%');
 
 INSERT INTO qd_mint_queue_cid_cutover_backup
@@ -78,7 +78,7 @@ SELECT
     q.cip25_json,
     q.image_ipfs_cid
 FROM qd_mint_queue q
-WHERE q.collection_slug = @target_collection_slug
+WHERE q.collection_slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
   AND (
       q.cip25_json LIKE CONCAT('%', @old_cid, '%')
       OR q.image_ipfs_cid = @old_cid
@@ -88,7 +88,7 @@ UPDATE qd_tokens
 SET
     cip25_json = REPLACE(cip25_json, @old_cid, @new_cid),
     updated_at = NOW()
-WHERE collection_slug = @target_collection_slug
+WHERE collection_slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
   AND cip25_json LIKE CONCAT('%', @old_cid, '%');
 
 UPDATE qd_mint_queue
@@ -99,7 +99,7 @@ SET
         ELSE image_ipfs_cid
     END,
     updated_at = NOW()
-WHERE collection_slug = @target_collection_slug
+WHERE collection_slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
   AND (
       cip25_json LIKE CONCAT('%', @old_cid, '%')
       OR image_ipfs_cid = @old_cid

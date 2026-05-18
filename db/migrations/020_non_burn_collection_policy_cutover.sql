@@ -54,7 +54,7 @@ SELECT
     c.policy_id,
     c.policy_addr
 FROM qd_collections c
-WHERE c.slug = @target_collection_slug;
+WHERE c.slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci);
 
 INSERT INTO qd_collections
     (slug, name, network, policy_env_key, lock_status, edition_size, primary_minted_count, all_primary_minted, created_at, updated_at)
@@ -70,7 +70,7 @@ SELECT
     NOW(),
     NOW()
 WHERE NOT EXISTS (
-    SELECT 1 FROM qd_collections c WHERE c.slug = @target_collection_slug
+    SELECT 1 FROM qd_collections c WHERE c.slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci)
 );
 
 UPDATE qd_collections
@@ -85,7 +85,7 @@ SET
         ELSE policy_addr
     END,
     updated_at = NOW()
-WHERE slug = @target_collection_slug;
+WHERE slug = (@target_collection_slug COLLATE utf8mb4_unicode_ci);
 
 -- Validation gates (run manually after migration):
 -- SELECT slug, policy_env_key, policy_id, policy_addr

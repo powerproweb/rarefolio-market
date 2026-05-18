@@ -10,9 +10,12 @@
  * Tests that require POLICY_MNEMONIC are automatically skipped when that env
  * var is absent (they would fail anyway because the wallet cannot initialise).
  */
+import 'dotenv/config';
 const BASE          = process.env.SIDECAR_BASE_URL || 'http://localhost:4000';
 const POLICY_READY  = Boolean(process.env.POLICY_MNEMONIC?.trim());
+const BLOCKFROST_READY = Boolean(process.env.BLOCKFROST_API_KEY?.trim());
 const COMPANION_TEST_ENV_KEY = (process.env.COMPANION_TEST_ENV_KEY || '').trim().toUpperCase();
+let POLICY_ADDR = null;
 
 let pass = 0;
 let fail = 0;
@@ -69,6 +72,7 @@ if (POLICY_READY) {
             `invalid policy_id: ${j.policy_id}`);
         expect(typeof j.policy_addr === 'string' && j.policy_addr.startsWith('addr'),
             `invalid policy_addr: ${j.policy_addr}`);
+        POLICY_ADDR = j.policy_addr;
         console.log(`       policy_id: ${j.policy_id}`);
     });
 } else {
@@ -99,11 +103,14 @@ if (POLICY_READY) {
                 rarefolio_token_id: 'smoke-test-001',
                 collection_slug:    'smoke-test',
                 asset_name_utf8:    'SmokeTest001',
-                recipient_addr:     'addr_test1qpkxqn9jpzrjdpls0g5agqefm60glx6k5qhvtdjfar40plq2pqfssufygjpxrxclpjh2p7r37r3llxm49myvf8dfhpqq5rpdr',
+                recipient_addr:     POLICY_ADDR || 'addr_test1qpkxqn9jpzrjdpls0g5agqefm60glx6k5qhvtdjfar40plq2pqfssufygjpxrxclpjh2p7r37r3llxm49myvf8dfhpqq5rpdr',
                 cip25: { name: 'Smoke Test', image: 'ipfs://Qmtest', mediaType: 'image/jpeg' },
             }),
         });
-        expect(r.ok, `status ${r.status} body=${await r.text()}`);
+        if (!r.ok) {
+            const body = await r.text();
+            throw new Error(`status ${r.status} body=${body}`);
+        }
         const j = await r.json();
         expect(j.stub === false, `expected stub=false, got ${j.stub}`);
         expect(typeof j.cbor_hex === 'string' && j.cbor_hex.length > 20, 'missing/short cbor_hex');
@@ -133,10 +140,11 @@ await test('GET /sync/token/:unit with bad unit returns 400', async () => {
     expect(r.status === 400, `expected 400 got ${r.status}`);
 });
 
-await test('GET /sync/token/:unit with non-existent asset returns 404', async () => {
+await test('GET /sync/token/:unit with non-existent asset returns 404 (or 503 when Blockfrost is unconfigured)', async () => {
     // 56 zeros is a valid hex unit format but will not exist on-chain
     const r = await fetch(`${BASE}/sync/token/${'0'.repeat(64)}`);
-    expect(r.status === 404, `expected 404 got ${r.status}`);
+    const expectedStatus = BLOCKFROST_READY ? 404 : 503;
+    expect(r.status === expectedStatus, `expected ${expectedStatus} got ${r.status}`);
 });
 
 // -----------------------------------------------------------------------

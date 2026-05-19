@@ -202,9 +202,44 @@ try {
         echo json_encode(['ok' => false, 'error' => 'token is not currently active for purchase']);
         exit;
     }
+    // Resolve and lock the active listing row used for this order.
+    $listingStmt = $pdo->prepare(
+        "SELECT id, sale_format, asking_price_lovelace
+           FROM qd_listings
+          WHERE nft_id = ?
+            AND rarefolio_token_id = ?
+            AND status = 'active'
+          ORDER BY id DESC
+          LIMIT 1
+          FOR UPDATE"
+    );
+    $listingStmt->execute([(int)$token['nft_id'], $tokenId]);
+    $listing = $listingStmt->fetch();
+    if (!$listing) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        http_response_code(409);
+        echo json_encode(['ok' => false, 'error' => 'active listing record not found for token']);
+        exit;
+    }
+    $listingId = (int)($listing['id'] ?? 0);
+    if ($listingId <= 0) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'invalid listing record for token']);
+        exit;
+    }
+    if ((string)($listing['sale_format'] ?? 'fixed') !== 'fixed') {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        http_response_code(409);
+        echo json_encode(['ok' => false, 'error' => 'only fixed-price listings are supported for this order path']);
+        exit;
+    }
 
     // Resolve and validate sale amount.
-    $configuredPrice = (int)($token['collection_price'] ?? 0);
+    $configuredPrice = (int)($listing['asking_price_lovelace'] ?? 0);
+    if ($configuredPrice <= 0) {
+        $configuredPrice = (int)($token['collection_price'] ?? 0);
+    }
     if ($amountLovelace > 0 && $configuredPrice > 0 && $amountLovelace !== $configuredPrice) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         http_response_code(409);
@@ -257,13 +292,14 @@ try {
              creator_addr, platform_addr,
              order_tx_hash, block_height, status, failure_reason)
          VALUES
-            (NULL, :nft_id, :tid,
+            (:listing_id, :nft_id, :tid,
              :buyer, :seller,
              :sale, :platform_fee,
              :royalty, :net,
              :creator, :platform,
              :tx, :block_height, 'pending', NULL)"
     )->execute([
+        ':listing_id'   => $listingId,
         ':nft_id'       => (int)$token['nft_id'],
         ':tid'          => $tokenId,
         ':buyer'        => $buyerAddr,

@@ -1,11 +1,11 @@
 # RareFolio.io — Launch Checklist
 
 **Code baseline:** `f83a63b` (main)
-**Status:** Preprod minting complete (E.2) + Founders CID replacement complete (E.3). Network/policy Phase F blockers were cleared on 2026-04-26; remaining Phase F work is production hardening.
+**Status:** Preprod minting complete (E.2) + Founders CID replacement complete (E.3). Phase F hardening is complete; current gate is Phase G pre-launch smoke and launch sequencing.
 
 ---
 
-## Current execution snapshot (2026-04-26)
+## Current execution snapshot (2026-05-19)
 
 - [x] **E.2 complete:** all 8 Founders tokens minted + confirmed on preprod (`docs/FOUNDERS_MINT_LOG.md`)
 - [x] **E.3 complete:** CID replacement applied using `db/migrations/017_update_founders_ipfs_cids.sql` and `db/migrations/018_fix_founders_ipfs_cids.sql`
@@ -14,6 +14,8 @@
 - [x] Finalize `POLICY_LOCK_SLOT` decision before first mainnet mint (current decision: no timelock for Founders; value intentionally blank)
 - [x] Resolve network mismatch: app + sidecar both set `BLOCKFROST_NETWORK=mainnet`
 - [x] Verify Blockfrost key/network alignment on server (`MAINNET_HTTP:200`, `PREPROD_HTTP:403` for both env files)
+- [x] Permanent `listing_id` fix in `api/buy-order.php` deployed and production-verified with a clean no-workaround order test (`order_id=9`, non-null `listing_id`, mint tx confirmed)
+- [x] `SPLIT_MNEMONIC_FOUNDERS_V2` restored and sidecar recycled; `GET /sweep/balance/FOUNDERS_V2` now returns normal wallet balance payload
 
 ---
 
@@ -127,16 +129,16 @@ Gate passed on 2026-04-24. See `docs/FOUNDERS_MINT_LOG.md` for tx hashes and ver
 - [x] Switch to mainnet: update `BLOCKFROST_NETWORK=mainnet` and `BLOCKFROST_API_KEY` (mainnet key) in both `.env` files
 - [x] Generate a fresh mainnet `POLICY_MNEMONIC` (never reuse preprod keys)
 - [x] Finalize `POLICY_LOCK_SLOT` decision (no timelock for current Founders mainnet run; blank in `sidecar/.env` by design)
-- [ ] Repeat Phase D for mainnet (derive policy ID, fund wallet)
+- [x] Repeat Phase D for mainnet (derive policy ID, fund wallet)
 - [x] Confirm `APP_ENV=production` and `APP_DEBUG=false`
 - [x] Confirm `CORS_ALLOWED_ORIGINS` contains only `https://rarefolio.io,https://www.rarefolio.io`
-- [ ] Rotate webhook secret: `php scripts/gen-webhook-secret.php` → update both sides
-- [ ] Generate a fresh `ADMIN_PASS` and update `.env`
-- [ ] Remove `verify.php` and `tests/` from production web root
-- [ ] Block `src/`, `db/`, `sidecar/` from HTTP access (`.htaccess` or nginx config)
-- [ ] Run production checklist: `docs/CONFIG.md` § 7
-- [ ] TLS cert active for the marketplace subdomain
-- [ ] Set `window.RF_MARKET_BASE` to the real marketplace URL in `verify.html` + `nft.html` on the main site
+- [x] Rotate webhook secret: `php scripts/gen-webhook-secret.php` → update both sides
+- [x] Generate a fresh `ADMIN_PASS` and update `.env`
+- [x] Remove `verify.php` and `tests/` from production web root
+- [x] Block `src/`, `db/`, `sidecar/` from HTTP access (`.htaccess` or nginx config)
+- [x] Run production checklist: `docs/CONFIG.md` § 7
+- [x] TLS cert active for the marketplace subdomain
+- [x] Set `window.RF_MARKET_BASE` to the real marketplace URL in `verify.html` + `nft.html` on the main site
 
 ---
 

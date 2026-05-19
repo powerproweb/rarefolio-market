@@ -1,49 +1,85 @@
 # RareFolio Marketplace - Project Status
-**Last updated:** 2026-05-18
-**Branch:** `wip/non-burn-policy-cid-cutover-local` (tracking `origin/wip/non-burn-policy-cid-cutover-local`)
-**Head commit:** `e879318`
+**Last updated:** 2026-05-19
+**Branch:** `docs/non-burn-cutover-final-state-20260518` (tracking `origin/docs/non-burn-cutover-final-state-20260518`)
+**Head commit:** `34e8005`
 ---
 ## Current execution state
 - **Phase E.2 complete (preprod minting):** all 8 Founders tokens minted and confirmed on preprod (`docs/FOUNDERS_MINT_LOG.md`)
-- **Phase E.3 complete (CID replacement):** Founders IPFS CID applied via migrations:
+- **Phase E.3 complete (CID replacement):** Founders IPFS CID applied via:
   - `db/migrations/017_update_founders_ipfs_cids.sql`
   - `db/migrations/018_fix_founders_ipfs_cids.sql`
 - **Non-burn policy and CID cutover complete in production (2026-05-18):**
   - `db/migrations/020_non_burn_collection_policy_cutover.sql` applied at `2026-05-18 10:10:27`
   - `db/migrations/021_non_burn_cid_cutover.sql` applied at `2026-05-18 10:12:09`
-  - `qd_collections.slug = silverbar-01-founders-v2` now resolves to `policy_env_key = FOUNDERS_V2`
-- **Founders V2 sidecar configuration complete:**
-  - `POLICY_MNEMONIC_FOUNDERS_V2` restored in production sidecar env
-  - `GET /mint/policy-id?env_key=FOUNDERS_V2` returns `200` with policy `82ae9440500e297e49144a13832861de3e84e526eee0eb70f4d48af7`
-- **Mint verification complete on mainnet:**
-  - Sidecar direct test mint confirmed:
-    - `tx_hash = 06161d3dbbed8539f83006d07fa7c181a7f733f7d90e9cb6ee82634b147588b2`
-    - `asset_fingerprint = asset1ke2txnq95qxncgcpg0e54khwfsemnnajwthd8q`
-  - Full marketplace lazy-mint path confirmed via controlled fixture:
-    - `order_id = 8`
-    - `mint_tx_hash = fddf585a9424ce267deca8eac603bb696f5d5e9c5fdf9d3865aa47f2b1402bf8`
-    - `asset_fingerprint = asset1cc08y7pqnnuc5uh44pwkv2w2x6e8n3st8lzkxy`
-- **Operational cleanup complete:**
-  - Temporary fixture collection, token, listing, and order rows removed
-  - Temporary DB trigger workaround removed
-  - Local rotated-credential temp file removed
+  - `qd_collections.slug=silverbar-01-founders-v2` resolves to `policy_env_key=FOUNDERS_V2`
+- **Founders V2 sidecar policy readiness remains healthy:**
+  - `GET /mint/policy-id?env_key=FOUNDERS_V2` returns `200`
+  - policy id: `82ae9440500e297e49144a13832861de3e84e526eee0eb70f4d48af7`
+- **Mainnet mint verification remains complete:**
+  - direct sidecar verification mint tx: `06161d3dbbed8539f83006d07fa7c181a7f733f7d90e9cb6ee82634b147588b2`
+  - full marketplace verification mint tx: `fddf585a9424ce267deca8eac603bb696f5d5e9c5fdf9d3865aa47f2b1402bf8`
+- **2026-05-19 production verification closure completed (listing_id fix):**
+  - permanent fix shipped in `api/buy-order.php`:
+    - resolve active `qd_listings` row under lock
+    - enforce fixed-price listing for this order path
+    - bind `:listing_id` into `qd_orders` insert instead of `NULL`
+    - use listing asking price first, then collection fallback
+  - deployed with timestamped backups:
+    - `/home/rarefolio/public_html/market.rarefolio.io/api/buy-order.php.bak_20260519T133714Z`
+    - `/home/rarefolio/www/market.rarefolio.io/api/buy-order.php.bak_20260519T133714Z`
+  - clean production retest succeeded with no DB workaround:
+    - `order_id=9`
+    - `order_tx_hash=cd356a127ebe19d6de01f8f2def6eb3ec5e877dce212ff04fce7e7f198873b16`
+    - `qd_orders.listing_id=28` (non-null, valid FK)
+    - `mint_tx_hash=efb84df86577657fb29411d8c13c453b975c3f21f06f479e25c0e22fff52e9db`
+    - Blockfrost tx lookup for mint tx returned `200`
+    - `order-status.php?order=9` returned `200`
+  - controlled fixture cleanup completed:
+    - removed order `9`, listing `28`, token `37`
+    - no residual test rows remain
+  - trigger workaround remains absent:
+    - `qd_orders_bi_fill_listing_id` count = `0`
+- **Phase F hardening checks advanced on 2026-05-19:**
+  - `APP_ENV=production`, `APP_DEBUG=false`
+  - `CORS_ALLOWED_ORIGINS=https://rarefolio.io,https://www.rarefolio.io`
+  - rate limit settings are non-zero
+  - `TRUSTED_PROXY_HEADER=X-Forwarded-For`
+  - marketplace health endpoint returns `200`
+  - `verify.php` and `tests/` are absent from both market web roots
+  - `/src/`, `/db/`, and `/sidecar/` return `403`
+  - TLS responds successfully on `https://market.rarefolio.io/`
+  - main-site `verify.html` and `nft.html` point to `https://market.rarefolio.io`
+- **Phase F hardening execution completed (items 1-4):**
+  - webhook secret rotated across Market sender and main-site receiver (`PUBLIC_SITE_WEBHOOK_SECRET` and `RF_WEBHOOK_SECRET`)
+  - rotated webhook validated by live signed `mint.complete` test event:
+    - `cnft_id=qd-whsec-rotate-1779203652`
+    - `tx_hash=fc3036a374b138048963157c4d0a41db8b5b05872379758fe6528323a81d7d8d`
+    - sender result `status=200`, receiver log append confirmed
+  - secret parity and format verified without disclosure:
+    - both secrets are 64-char hex
+    - sender/receiver secret hash comparison matched
+  - Market admin credential rotated and validated:
+    - wrong password returns invalid credentials (HTTP `200`, no redirect)
+    - new password login returns HTTP `302` redirect to `/admin/index.php`
+  - `docs/CONFIG.md` section 7 evidence closed:
+    - local tests: `tests/test_webhook_signer.php` passed (`6/6`), `tests/test_api_router.php` passed (`4/4`)
+    - production checks reconfirmed (`/api/v1/health`, TLS, webhook log writable path)
+  - `FOUNDERS_V2` split mnemonic issue resolved:
+    - `SPLIT_MNEMONIC_FOUNDERS_V2` set in sidecar env
+    - sidecar process recycled
+    - `GET /sweep/balance/FOUNDERS_V2` now returns wallet address and balance payload
 ## Local repository state
-- Working tree was clean on `wip/non-burn-policy-cid-cutover-local` at time of this status update
-- Branch was synchronized with `origin/wip/non-burn-policy-cid-cutover-local` before this documentation commit
+- Working tree currently includes one uncommitted code fix: `api/buy-order.php`
+- This status file is updated after production verification closure and Phase F readiness checks
 ---
-## Current blockers (Phase F)
-1. **Critical:** `api/buy-order.php` still inserts `listing_id = NULL` while `qd_orders.listing_id` is `NOT NULL`. A permanent code-level fix is required before relying on new primary sale order creation.
-2. Repeat Phase D for mainnet completion (derive and record policy ID and fund wallet)
-3. Rotate webhook secret and `ADMIN_PASS`
-4. Remove `verify.php` and `tests` from production web root and block `src/`, `db/`, and `sidecar/` from HTTP access
-5. Complete production checklist and final smoke checks before Phase G launch
+## Current blockers (Phase G gate)
+1. Execute final launch smoke sequence (`sidecar/test-smoke.mjs`, `/api/v1/health`, admin auth, token/order path smoke) and archive outputs.
+2. Complete launch-day sequencing decisions (DNS cutover timing and announcement window).
 ---
 ## Next execution sequence
-1. Ship the permanent `listing_id` fix in `api/buy-order.php`.
-2. Complete `docs/LAUNCH_CHECKLIST.md` Phase F items in order.
-3. Confirm mainnet sidecar health and policy readiness.
-4. Run smoke checks (`sidecar/test-smoke.mjs`, `api/v1/health`, admin login).
-5. Proceed to launch-day steps in Phase G only after Phase F is clean.
+1. Run final smoke checks (`sidecar/test-smoke.mjs`, `/api/v1/health`, admin login, token/order smoke path).
+2. Capture and store Phase G pre-launch evidence bundle.
+3. Proceed to launch-day steps in Phase G (DNS, propagation, announcement) once smoke checks are clean.
 ---
 ## What is shipped (code/platform)
 - Phase 1 scaffold and admin foundation

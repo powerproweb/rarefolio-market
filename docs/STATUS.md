@@ -12,6 +12,17 @@
   - `db/migrations/020_non_burn_collection_policy_cutover.sql` applied at `2026-05-18 10:10:27`
   - `db/migrations/021_non_burn_cid_cutover.sql` applied at `2026-05-18 10:12:09`
   - `qd_collections.slug=silverbar-01-founders-v2` resolves to `policy_env_key=FOUNDERS_V2`
+- **2026-05-19 migration execution + mint policy smoke closure:**
+  - applied policy-key alignment updates for `silverbar-01-founders-v2`:
+    - `qd_tokens` v721 policy-key rewrites: `8`
+    - `qd_mint_queue` v721 policy-key rewrites: `8`
+    - `policy_id` mismatch count after apply: `0` across both tables
+  - added migration artifact:
+    - `db/migrations/022_align_founders_v2_policy_v721_keys.sql`
+  - final non-destructive mint smoke test passed:
+    - `GET /mint/policy-id?env_key=FOUNDERS_V2` -> `82ae9440500e297e49144a13832861de3e84e526eee0eb70f4d48af7`
+    - `GET /mint/policy-id?env_key=FOUNDERS` -> `e29ba98c7633bb62e8d8d0f5013a4a2dee3d1872e00032a0f524c9e9`
+    - build-only `POST /mint/prepare` passed for both env keys with distinct policy IDs
 - **Founders V2 sidecar policy readiness remains healthy:**
   - `GET /mint/policy-id?env_key=FOUNDERS_V2` returns `200`
   - policy id: `82ae9440500e297e49144a13832861de3e84e526eee0eb70f4d48af7`

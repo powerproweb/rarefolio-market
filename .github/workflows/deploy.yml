@@ -216,32 +216,7 @@ jobs:
             echo "mode=$mode http=$http_code elapsed_seconds=$elapsed" | tee -a /tmp/migration_summary.txt
             cat "$output_file"
 
-            python - "$mode" "$output_file" >> /tmp/migration_summary.txt <<'PY'
-import json
-import sys
-
-mode = sys.argv[1]
-path = sys.argv[2]
-
-with open(path, "r", encoding="utf-8") as handle:
-    payload = json.load(handle)
-
-output = payload.get("output", "")
-pending_files = []
-applied_count = 0
-
-for line in output.splitlines():
-    if line.startswith("plan  "):
-        parts = line.split()
-        if len(parts) >= 2:
-            pending_files.append(parts[1])
-    if line.startswith("ok    "):
-        applied_count += 1
-
-pending_text = ",".join(pending_files) if pending_files else "-"
-print(f"{mode}_pending_files={pending_text}")
-print(f"{mode}_applied_count={applied_count}")
-PY
+            python -c "import json,sys; mode=sys.argv[1]; path=sys.argv[2]; payload=json.load(open(path, 'r', encoding='utf-8')); output=payload.get('output', ''); pending=[]; applied=0; [pending.append(parts[1]) for line in output.splitlines() if line.startswith('plan  ') and len((parts:=line.split()))>=2]; applied=sum(1 for line in output.splitlines() if line.startswith('ok    ')); print(f'{mode}_pending_files={\",\".join(pending) if pending else \"-\"}'); print(f'{mode}_applied_count={applied}')" "$mode" "$output_file" >> /tmp/migration_summary.txt
 
             if [ "$http_code" != "200" ]; then
               echo "Migration mode '$mode' failed"

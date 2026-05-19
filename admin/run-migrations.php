@@ -16,6 +16,21 @@
 declare(strict_types=1);
 header('Content-Type: application/json');
 
+const RF_HTTP_MIGRATION_MODES = ['plan', 'dry-run', 'apply'];
+
+/**
+ * @return array<string,mixed>
+ */
+function parseJsonBody(): array
+{
+    $raw = file_get_contents('php://input');
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
 // ---- Auth: constant-time compare against DEPLOY_WEBHOOK_SECRET ----
 $envFile = __DIR__ . '/../.env';
 $secret  = '';
@@ -35,6 +50,24 @@ if ($secret === '' || !hash_equals($secret, $provided)) {
     exit;
 }
 
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['ok' => false, 'error' => 'method_not_allowed']);
+    exit;
+}
+
+$jsonBody = parseJsonBody();
+$mode = $_POST['mode'] ?? $jsonBody['mode'] ?? $_GET['mode'] ?? 'apply';
+if (!is_string($mode) || !in_array($mode, RF_HTTP_MIGRATION_MODES, true)) {
+    http_response_code(400);
+    echo json_encode([
+        'ok' => false,
+        'error' => 'invalid_mode',
+        'allowed_modes' => RF_HTTP_MIGRATION_MODES,
+    ]);
+    exit;
+}
+
 // ---- Run migrations ----
 $migrationsDir = __DIR__ . '/../db/migrate.php';
 if (!is_file($migrationsDir)) {
@@ -45,7 +78,10 @@ if (!is_file($migrationsDir)) {
 
 ob_start();
 $exitCode = 0;
+$startedAt = microtime(true);
 try {
+    putenv('RF_MIGRATION_MODE=' . $mode);
+    $GLOBALS['RF_MIGRATION_MODE'] = $mode;
     // Capture stdout/stderr from the migration runner
     include $migrationsDir;
 } catch (Throwable $e) {
@@ -53,9 +89,12 @@ try {
     echo 'EXCEPTION: ' . $e->getMessage() . "\n";
 }
 $output = ob_get_clean();
+$elapsedSeconds = microtime(true) - $startedAt;
 
 http_response_code($exitCode === 0 ? 200 : 500);
 echo json_encode([
     'ok'     => $exitCode === 0,
+    'mode'   => $mode,
+    'elapsed_seconds' => round($elapsedSeconds, 3),
     'output' => $output,
 ]);

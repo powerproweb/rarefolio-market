@@ -71,6 +71,44 @@ final class Client
     }
 
     /**
+     * List UTXOs for a payment address (single page).
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function addressUtxos(string $address, int $page = 1, int $count = 100): array
+    {
+        $path = '/addresses/' . rawurlencode($address) . '/utxos?page=' . max(1, $page) . '&count=' . max(1, min(100, $count));
+        $data = $this->getJson($path, allow404: true);
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * List all UTXOs for a payment address (paginated).
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function allAddressUtxos(string $address, int $maxPages = 20, int $count = 100): array
+    {
+        $all = [];
+        $safePages = max(1, $maxPages);
+        for ($page = 1; $page <= $safePages; $page++) {
+            $batch = $this->addressUtxos($address, $page, $count);
+            if (count($batch) === 0) {
+                break;
+            }
+            foreach ($batch as $row) {
+                if (is_array($row)) {
+                    $all[] = $row;
+                }
+            }
+            if (count($batch) < $count) {
+                break;
+            }
+        }
+        return $all;
+    }
+
+    /**
      * Return the single owning bech32 address for an NFT, or null if not held/burned.
      */
     public function currentOwner(string $unit): ?string

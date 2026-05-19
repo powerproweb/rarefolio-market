@@ -222,40 +222,65 @@ jobs:
             -oConnectTimeout=20 \
             -i ~/.ssh/deploy_key \
             -p 22 \
-            "$SSH_TARGET" \
-            "set -euo pipefail
-             cd '$REMOTE_DIR/sidecar'
-             if [ -f package-lock.json ]; then npm ci; else npm install; fi
-             npm run build
+            "$SSH_TARGET" "REMOTE_DIR='$REMOTE_DIR' bash -se" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          cd "$REMOTE_DIR/sidecar"
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          npm run build
 
-             restart_ok=0
-             if command -v sudo >/dev/null 2>&1 && sudo -n systemctl restart rarefolio-sidecar >/dev/null 2>&1; then
-               restart_ok=1
-             elif command -v systemctl >/dev/null 2>&1 && systemctl restart rarefolio-sidecar >/dev/null 2>&1; then
-               restart_ok=1
-             elif command -v systemctl >/dev/null 2>&1 && systemctl --user restart rarefolio-sidecar >/dev/null 2>&1; then
-               restart_ok=1
-             elif command -v pm2 >/dev/null 2>&1 && pm2 restart rarefolio-sidecar >/dev/null 2>&1; then
-               restart_ok=1
-             fi
-             if [ \"\$restart_ok\" != \"1\" ]; then
-               echo 'unable to restart sidecar process manager (systemctl or pm2)'
-               exit 1
-             fi
+          restart_ok=0
+          restart_method='none'
+          if command -v sudo >/dev/null 2>&1 && sudo -n systemctl restart rarefolio-sidecar >/dev/null 2>&1; then
+            restart_ok=1
+            restart_method='sudo systemctl'
+          elif command -v systemctl >/dev/null 2>&1 && systemctl restart rarefolio-sidecar >/dev/null 2>&1; then
+            restart_ok=1
+            restart_method='systemctl'
+          elif command -v systemctl >/dev/null 2>&1 && systemctl --user restart rarefolio-sidecar >/dev/null 2>&1; then
+            restart_ok=1
+            restart_method='systemctl --user'
+          elif command -v pm2 >/dev/null 2>&1 && pm2 restart rarefolio-sidecar >/dev/null 2>&1; then
+            restart_ok=1
+            restart_method='pm2'
+          fi
 
-             curl -fsS http://127.0.0.1:4000/health >/tmp/rf-sidecar-health.json
-             PROBE_CODE=\$(curl -sS -o /tmp/rf-companion-route.json -w '%{http_code}' \
-               http://127.0.0.1:4000/companion/treasury/INVALID-ENV-KEY/balance || true)
-             if [ \"\$PROBE_CODE\" != \"400\" ]; then
-               echo \"companion route probe expected HTTP 400, got \$PROBE_CODE\"
-               cat /tmp/rf-companion-route.json || true
-               exit 1
-             fi
-             echo 'sidecar health:'
-             cat /tmp/rf-sidecar-health.json
-             echo 'companion route probe:'
-             cat /tmp/rf-companion-route.json
-            "
+          if [ "$restart_ok" != "1" ]; then
+            node_bin=$(command -v node || true)
+            if [ -n "$node_bin" ] && [ -f dist/index.js ]; then
+              if command -v pkill >/dev/null 2>&1; then
+                pkill -f '/sidecar/dist/index.js' >/dev/null 2>&1 || true
+              fi
+              nohup "$node_bin" dist/index.js >/tmp/rf-sidecar-nohup.log 2>&1 &
+              sidecar_pid=$!
+              sleep 2
+              if kill -0 "$sidecar_pid" >/dev/null 2>&1; then
+                restart_ok=1
+                restart_method='nohup node dist/index.js'
+              else
+                tail -n 50 /tmp/rf-sidecar-nohup.log || true
+              fi
+            fi
+          fi
+
+          if [ "$restart_ok" != "1" ]; then
+            echo 'unable to restart sidecar process manager (systemctl or pm2) and nohup fallback failed'
+            exit 1
+          fi
+          echo "sidecar restart method: $restart_method"
+
+          curl -fsS http://127.0.0.1:4000/health >/tmp/rf-sidecar-health.json
+          PROBE_CODE=$(curl -sS -o /tmp/rf-companion-route.json -w '%{http_code}' \
+            http://127.0.0.1:4000/companion/treasury/INVALID-ENV-KEY/balance || true)
+          if [ "$PROBE_CODE" != "400" ]; then
+            echo "companion route probe expected HTTP 400, got $PROBE_CODE"
+            cat /tmp/rf-companion-route.json || true
+            exit 1
+          fi
+          echo 'sidecar health:'
+          cat /tmp/rf-sidecar-health.json
+          echo 'companion route probe:'
+          cat /tmp/rf-companion-route.json
+          REMOTE_SCRIPT
 
       # ---- 4. Health check via public API -----------------------------------
       - name: Health check

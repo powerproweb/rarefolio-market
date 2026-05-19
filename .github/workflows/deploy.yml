@@ -249,6 +249,10 @@ jobs:
             if [ -n "$node_bin" ] && [ -f dist/index.js ]; then
               if command -v pkill >/dev/null 2>&1; then
                 pkill -f '/sidecar/dist/index.js' >/dev/null 2>&1 || true
+                pkill -f 'rarefolio-sidecar' >/dev/null 2>&1 || true
+              fi
+              if command -v fuser >/dev/null 2>&1; then
+                fuser -k 4000/tcp >/dev/null 2>&1 || true
               fi
               nohup "$node_bin" dist/index.js >/tmp/rf-sidecar-nohup.log 2>&1 &
               sidecar_pid=$!
@@ -256,6 +260,13 @@ jobs:
               if kill -0 "$sidecar_pid" >/dev/null 2>&1; then
                 restart_ok=1
                 restart_method='nohup node dist/index.js'
+              elif grep -qi 'EADDRINUSE' /tmp/rf-sidecar-nohup.log 2>/dev/null; then
+                if curl -fsS http://127.0.0.1:4000/health >/dev/null 2>&1; then
+                  restart_ok=1
+                  restart_method='existing listener on :4000 (healthy)'
+                else
+                  tail -n 50 /tmp/rf-sidecar-nohup.log || true
+                fi
               else
                 tail -n 50 /tmp/rf-sidecar-nohup.log || true
               fi

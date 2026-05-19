@@ -188,26 +188,81 @@ jobs:
           "
 
       # ---- 2. DB migrations via HTTP (no shell required) --------------------
-      #  Calls admin/run-migrations.php over HTTPS, authenticated by
-      #  DEPLOY_WEBHOOK_SECRET. This is required for production deploys.
-      - name: Run DB migrations
+      # Calls admin/run-migrations.php over HTTPS, authenticated by
+      # DEPLOY_WEBHOOK_SECRET. Sequence is strict: plan -> dry-run -> apply.
+      - name: Run migration plan, dry-run, and apply
         run: |
           if [ -z "${{ secrets.DEPLOY_WEBHOOK_SECRET }}" ]; then
             echo "DEPLOY_WEBHOOK_SECRET not configured; refusing production deploy"
             exit 1
           fi
-          HTTP_CODE=$(curl -sS \
-            -o /tmp/migration_response.json \
-            -w "%{http_code}" \
-            -X POST \
-            -H "X-Deploy-Secret: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}" \
-            "https://market.rarefolio.io/admin/run-migrations.php")
-          echo "Migration HTTP status: $HTTP_CODE"
-          cat /tmp/migration_response.json
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "Migration trigger failed"
-            exit 1
-          fi
+
+          : > /tmp/migration_summary.txt
+
+          run_migration_mode() {
+            mode="$1"
+            output_file="/tmp/migration_${mode}.json"
+            started_at="$(date +%s)"
+            http_code=$(curl -sS \
+              -o "$output_file" \
+              -w "%{http_code}" \
+              -X POST \
+              -H "X-Deploy-Secret: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}" \
+              --data-urlencode "mode=$mode" \
+              "https://market.rarefolio.io/admin/run-migrations.php")
+            finished_at="$(date +%s)"
+            elapsed="$((finished_at - started_at))"
+
+            echo "mode=$mode http=$http_code elapsed_seconds=$elapsed" | tee -a /tmp/migration_summary.txt
+            cat "$output_file"
+
+            python - "$mode" "$output_file" >> /tmp/migration_summary.txt <<'PY'
+import json
+import sys
+
+mode = sys.argv[1]
+path = sys.argv[2]
+
+with open(path, "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+output = payload.get("output", "")
+pending_files = []
+applied_count = 0
+
+for line in output.splitlines():
+    if line.startswith("plan  "):
+        parts = line.split()
+        if len(parts) >= 2:
+            pending_files.append(parts[1])
+    if line.startswith("ok    "):
+        applied_count += 1
+
+pending_text = ",".join(pending_files) if pending_files else "-"
+print(f"{mode}_pending_files={pending_text}")
+print(f"{mode}_applied_count={applied_count}")
+PY
+
+            if [ "$http_code" != "200" ]; then
+              echo "Migration mode '$mode' failed"
+              exit 1
+            fi
+          }
+
+          run_migration_mode "plan"
+          run_migration_mode "dry-run"
+          run_migration_mode "apply"
+
+      - name: Upload migration reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/migration_plan.json
+            /tmp/migration_dry-run.json
+            /tmp/migration_apply.json
+            /tmp/migration_summary.txt
       # ---- 3. Sidecar rebuild/restart + companion route gate -----------------
       # Always rebuild and restart sidecar on production deploys to prevent
       # stale runtime drift. sidecar/dist/ is excluded from file sync, so the

@@ -35,6 +35,16 @@ php db/migrate.php
 
 Migrations are applied in lexical order (001 → 012). Already-applied
 migrations are skipped. The migration state is stored in `schema_migrations`.
+Additional safety modes:
+
+```powershell
+php db/migrate.php --mode=plan
+php db/migrate.php --mode=dry-run
+```
+
+- `plan` lists pending migrations and validates guard rules without applying SQL.
+- `dry-run` clones the current schema into a disposable shadow database, applies
+  pending migrations there, and drops the shadow database on completion.
 
 ### 4. Start the sidecar
 

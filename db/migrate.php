@@ -11,6 +11,7 @@
  *   php db/migrate.php
  *   php db/migrate.php --mode=plan
  *   php db/migrate.php --mode=dry-run
+ *   php db/migrate.php --mode=dry-run --dry-run-db=rarefolio_market_dryrun
  */
 declare(strict_types=1);
 
@@ -78,18 +79,29 @@ function assertMigrationGuards(string $name, string $sql): void
     }
 }
 
-function cliModeFromArgv(array $argv): ?string
+function cliValueFromArgv(array $argv, string $flag): ?string
 {
+    $prefix = $flag . '=';
     for ($i = 1, $count = count($argv); $i < $count; $i++) {
         $arg = (string) $argv[$i];
-        if (str_starts_with($arg, '--mode=')) {
-            return (string) substr($arg, strlen('--mode='));
+        if (str_starts_with($arg, $prefix)) {
+            return (string) substr($arg, strlen($prefix));
         }
-        if ($arg === '--mode' && isset($argv[$i + 1])) {
+        if ($arg === $flag && isset($argv[$i + 1])) {
             return (string) $argv[$i + 1];
         }
     }
     return null;
+}
+
+function cliModeFromArgv(array $argv): ?string
+{
+    return cliValueFromArgv($argv, '--mode');
+}
+
+function cliDryRunDbFromArgv(array $argv): ?string
+{
+    return cliValueFromArgv($argv, '--dry-run-db');
 }
 
 function resolveMigrationMode(): string
@@ -124,6 +136,64 @@ function resolveMigrationMode(): string
     }
 
     return $mode;
+}
+
+function validateDryRunDbName(string $candidate, string $sourceDb): string
+{
+    $name = trim($candidate);
+    if ($name === '') {
+        throw new RuntimeException('Dry-run DB name is empty.');
+    }
+    if (!preg_match('/^[A-Za-z0-9_]+$/', $name)) {
+        throw new RuntimeException("Invalid dry-run DB name '$name'. Use only letters, numbers, and underscore.");
+    }
+    if (strlen($name) > 64) {
+        throw new RuntimeException("Dry-run DB name '$name' is too long (max 64 characters).");
+    }
+    if (strcasecmp($name, $sourceDb) === 0) {
+        throw new RuntimeException('Dry-run DB must be different from DB_NAME.');
+    }
+    return $name;
+}
+
+function resolveDryRunDbName(string $sourceDb): ?string
+{
+    $candidate = null;
+
+    $globalDb = $GLOBALS['RF_MIGRATION_DRY_RUN_DB'] ?? null;
+    if (is_string($globalDb) && trim($globalDb) !== '') {
+        $candidate = $globalDb;
+    }
+
+    if ($candidate === null) {
+        $envDb = getenv('RF_MIGRATION_DRY_RUN_DB');
+        if (is_string($envDb) && trim($envDb) !== '') {
+            $candidate = $envDb;
+        }
+    }
+
+    if ($candidate === null && PHP_SAPI === 'cli') {
+        global $argv;
+        if (is_array($argv)) {
+            $argDb = cliDryRunDbFromArgv($argv);
+            if (is_string($argDb) && trim($argDb) !== '') {
+                $candidate = $argDb;
+            }
+        }
+    }
+
+    if ($candidate === null) {
+        $configDb = Config::get('MIGRATION_DRY_RUN_DB');
+        if (is_string($configDb) && trim($configDb) !== '') {
+            $candidate = $configDb;
+        }
+    }
+
+    if ($candidate === null) {
+        return null;
+    }
+
+    return validateDryRunDbName($candidate, $sourceDb);
 }
 
 function ensureSchemaMigrationsTable(PDO $pdo): void
@@ -318,6 +388,52 @@ function createShadowDatabase(PDO $adminPdo, string $sourceDb, string $shadowDb)
     $adminPdo->exec("CREATE DATABASE $qShadow CHARACTER SET $charset COLLATE $collation");
 }
 
+function shadowDatabaseExists(PDO $adminPdo, string $shadowDb): bool
+{
+    $stmt = $adminPdo->prepare(
+        'SELECT COUNT(*)
+         FROM information_schema.SCHEMATA
+         WHERE SCHEMA_NAME = ?'
+    );
+    $stmt->execute([$shadowDb]);
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function resetShadowSchema(PDO $adminPdo, string $shadowDb): void
+{
+    $stmt = $adminPdo->prepare(
+        'SELECT TABLE_NAME, TABLE_TYPE
+         FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = ?
+         ORDER BY TABLE_NAME'
+    );
+    $stmt->execute([$shadowDb]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    if (count($rows) === 0) {
+        return;
+    }
+
+    $qShadow = quoteIdentifier($shadowDb);
+    $adminPdo->exec('SET FOREIGN_KEY_CHECKS=0');
+    try {
+        foreach ($rows as $row) {
+            $table = (string) ($row['TABLE_NAME'] ?? '');
+            $type = strtoupper((string) ($row['TABLE_TYPE'] ?? 'BASE TABLE'));
+            if ($table === '') {
+                continue;
+            }
+            $qTable = quoteIdentifier($table);
+            if ($type === 'VIEW') {
+                $adminPdo->exec("DROP VIEW IF EXISTS $qShadow.$qTable");
+                continue;
+            }
+            $adminPdo->exec("DROP TABLE IF EXISTS $qShadow.$qTable");
+        }
+    } finally {
+        $adminPdo->exec('SET FOREIGN_KEY_CHECKS=1');
+    }
+}
+
 function cloneBaseTables(PDO $adminPdo, string $sourceDb, string $shadowDb): void
 {
     $stmt = $adminPdo->prepare(
@@ -374,30 +490,49 @@ function runDryRun(array $files): int
 {
     $config = migrationDbConfig();
     $sourceDb = $config['name'];
-    $shadowDb = makeShadowDbName($sourceDb);
+    $configuredShadowDb = resolveDryRunDbName($sourceDb);
+    $shadowDb = $configuredShadowDb ?? makeShadowDbName($sourceDb);
+    $usesConfiguredShadowDb = $configuredShadowDb !== null;
 
     $adminPdo = pdoFromConfig($config, null);
-    $qShadow = quoteIdentifier($shadowDb);
 
     migrationLog("dry-run target source DB: $sourceDb");
-    migrationLog("dry-run shadow DB: $shadowDb");
+    if ($usesConfiguredShadowDb) {
+        migrationLog("dry-run shadow DB (configured): $shadowDb");
+    } else {
+        migrationLog("dry-run shadow DB (ephemeral): $shadowDb");
+    }
 
     try {
-        createShadowDatabase($adminPdo, $sourceDb, $shadowDb);
+        if ($usesConfiguredShadowDb) {
+            if (!shadowDatabaseExists($adminPdo, $shadowDb)) {
+                throw new RuntimeException("Configured dry-run DB '$shadowDb' does not exist.");
+            }
+            resetShadowSchema($adminPdo, $shadowDb);
+        } else {
+            createShadowDatabase($adminPdo, $sourceDb, $shadowDb);
+        }
         cloneBaseTables($adminPdo, $sourceDb, $shadowDb);
         copySchemaMigrationsTable($adminPdo, $sourceDb, $shadowDb);
 
         $shadowPdo = pdoFromConfig($config, $shadowDb);
         $applied = loadAppliedMigrations($shadowPdo);
         $ran = runApply($shadowPdo, $files, $applied);
-        migrationLog("dry-run complete for shadow DB: $shadowDb");
+        if ($usesConfiguredShadowDb) {
+            migrationLog("dry-run complete for configured shadow DB: $shadowDb");
+        } else {
+            migrationLog("dry-run complete for ephemeral shadow DB: $shadowDb");
+        }
         return $ran;
     } finally {
-        try {
-            $adminPdo->exec("DROP DATABASE IF EXISTS $qShadow");
-            migrationLog("dry-run cleanup: dropped shadow DB $shadowDb");
-        } catch (Throwable $cleanupError) {
-            migrationLog("WARN  dry-run cleanup failed for $shadowDb: " . $cleanupError->getMessage(), true);
+        if (!$usesConfiguredShadowDb) {
+            $qShadow = quoteIdentifier($shadowDb);
+            try {
+                $adminPdo->exec("DROP DATABASE IF EXISTS $qShadow");
+                migrationLog("dry-run cleanup: dropped shadow DB $shadowDb");
+            } catch (Throwable $cleanupError) {
+                migrationLog("WARN  dry-run cleanup failed for $shadowDb: " . $cleanupError->getMessage(), true);
+            }
         }
     }
 }

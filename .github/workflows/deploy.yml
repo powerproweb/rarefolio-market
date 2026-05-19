@@ -23,6 +23,8 @@
 #                              e.g. /home/<user>/public_html/market.rarefolio.io
 #      DEPLOY_WEBHOOK_SECRET — 64-char hex secret matching .env DEPLOY_WEBHOOK_SECRET
 #                              Generate: php scripts/gen-webhook-secret.php
+#      MIGRATION_DRY_RUN_DB  — pre-provisioned dry-run schema name (must already exist
+#                              and be writable by DB_USER in production .env)
 #
 #  NOTE: BlueHost disables SSH shell access for SFTP-only accounts.
 #  File sync uses the SFTP subsystem (no shell needed).
@@ -196,6 +198,10 @@ jobs:
             echo "DEPLOY_WEBHOOK_SECRET not configured; refusing production deploy"
             exit 1
           fi
+          if [ -z "${{ secrets.MIGRATION_DRY_RUN_DB }}" ]; then
+            echo "MIGRATION_DRY_RUN_DB not configured; refusing production deploy"
+            exit 1
+          fi
 
           : > /tmp/migration_summary.txt
 
@@ -203,13 +209,19 @@ jobs:
             mode="$1"
             output_file="/tmp/migration_${mode}.json"
             started_at="$(date +%s)"
-            http_code=$(curl -sS \
-              -o "$output_file" \
-              -w "%{http_code}" \
-              -X POST \
-              -H "X-Deploy-Secret: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}" \
-              --data-urlencode "mode=$mode" \
-              "https://market.rarefolio.io/admin/run-migrations.php")
+
+            curl_args=(
+              -sS
+              -o "$output_file"
+              -w "%{http_code}"
+              -X POST
+              -H "X-Deploy-Secret: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}"
+              --data-urlencode "mode=$mode"
+            )
+            if [ "$mode" = "dry-run" ]; then
+              curl_args+=(--data-urlencode "dry_run_db=${{ secrets.MIGRATION_DRY_RUN_DB }}")
+            fi
+            http_code=$(curl "${curl_args[@]}" "https://market.rarefolio.io/admin/run-migrations.php")
             finished_at="$(date +%s)"
             elapsed="$((finished_at - started_at))"
 

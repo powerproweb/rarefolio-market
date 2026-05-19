@@ -172,18 +172,26 @@ function decode_cip25_json(mixed $raw): array
  * @param array<string,mixed> $cip25
  * @return array<string,mixed>
  */
-function apply_companion_submission(array $cip25, string $txHash): array
+function apply_companion_submission(array $cip25, string $txHash, ?string $unit = null): array
 {
     $txHash = strtolower($txHash);
+    $unit = $unit !== null ? strtolower(trim($unit)) : null;
     $cip25['companion_enabled'] = true;
     $cip25['companion_status'] = 'submitted';
     $cip25['companion_tx_hash'] = $txHash;
+    if ($unit !== null && $unit !== '') {
+        $cip25['companion_unit'] = $unit;
+        $cip25['silver_shard_unit'] = $unit;
+    }
 
     $companion = $cip25['companion'] ?? [];
     if (!is_array($companion)) $companion = [];
     $companion['enabled'] = true;
     $companion['status'] = 'submitted';
     $companion['tx_hash'] = $txHash;
+    if ($unit !== null && $unit !== '') {
+        $companion['unit'] = $unit;
+    }
 
     $delivery = $companion['delivery'] ?? [];
     if (!is_array($delivery)) $delivery = [];
@@ -212,6 +220,9 @@ function fetch_targets(PDO $pdo, array $orderIds, array $tokenIds, int $maxItems
                     t.rarefolio_token_id,
                     t.collection_slug,
                     t.cip25_json,
+                    t.current_owner_wallet,
+                    t.custody_status,
+                    t.primary_sale_status,
                     c.policy_env_key
              FROM qd_orders o
              JOIN qd_tokens t ON t.rarefolio_token_id = o.rarefolio_token_id
@@ -234,6 +245,9 @@ function fetch_targets(PDO $pdo, array $orderIds, array $tokenIds, int $maxItems
                     t.rarefolio_token_id,
                     t.collection_slug,
                     t.cip25_json,
+                    t.current_owner_wallet,
+                    t.custody_status,
+                    t.primary_sale_status,
                     c.policy_env_key,
                     o.id AS order_id,
                     o.status AS order_status,
@@ -348,8 +362,18 @@ try {
         $tokenId = (string) ($target['rarefolio_token_id'] ?? '');
         $tokenRowId = (int) ($target['token_row_id'] ?? 0);
         $orderId = (int) ($target['order_id'] ?? 0);
-        $orderStatus = (string) ($target['order_status'] ?? '');
-        $recipientAddr = trim((string) ($target['buyer_addr'] ?? ''));
+        $orderStatus = strtolower(trim((string) ($target['order_status'] ?? '')));
+        $buyerAddr = trim((string) ($target['buyer_addr'] ?? ''));
+        $ownerAddr = trim((string) ($target['current_owner_wallet'] ?? ''));
+        $recipientAddr = '';
+        $recipientSource = '';
+        if ($buyerAddr !== '' && in_array($orderStatus, ['submitted', 'settled'], true)) {
+            $recipientAddr = $buyerAddr;
+            $recipientSource = 'order';
+        } elseif ($ownerAddr !== '') {
+            $recipientAddr = $ownerAddr;
+            $recipientSource = 'owner_fallback';
+        }
         $envKey = $overrideEnvKey ?? normalize_env_key((string) ($target['policy_env_key'] ?? ''));
         $cip25 = decode_cip25_json($target['cip25_json'] ?? null);
         $unit = $overrideUnit ?? resolve_companion_unit($cip25);
@@ -361,6 +385,17 @@ try {
                 'token_id' => $tokenId,
                 'order_id' => $orderId,
                 'reason' => 'token_missing',
+            ];
+            continue;
+        }
+        if ($orderId > 0 && $orderStatus !== '' && !in_array($orderStatus, ['submitted', 'settled'], true) && $buyerAddr !== '') {
+            $skippedCount++;
+            $results[] = [
+                'ok' => false,
+                'token_id' => $tokenId,
+                'order_id' => $orderId,
+                'reason' => 'order_not_dispatchable',
+                'order_status' => $orderStatus,
             ];
             continue;
         }
@@ -408,7 +443,7 @@ try {
             $submitted = (bool) ($sidecarResponse['submitted'] ?? false);
 
             if ($submit && $submitted && preg_match('/^[0-9a-f]{64}$/i', $txHash) === 1) {
-                $cip25 = apply_companion_submission($cip25, $txHash);
+                $cip25 = apply_companion_submission($cip25, $txHash, $unit);
                 $encoded = json_encode($cip25, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                 if ($encoded !== false) {
                     $updateTokenStmt->execute([$encoded, $tokenRowId]);
@@ -423,6 +458,7 @@ try {
                 'order_status' => $orderStatus !== '' ? $orderStatus : null,
                 'treasury_env_key' => $envKey,
                 'recipient_addr' => $recipientAddr,
+                'recipient_source' => $recipientSource !== '' ? $recipientSource : null,
                 'unit' => $unit,
                 'sidecar' => $sidecarResponse,
             ];

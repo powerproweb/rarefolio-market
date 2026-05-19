@@ -111,6 +111,11 @@ Migration files live in `db/migrations/*.sql` and are numbered sequentially.
 The migration runner (`db/migrate.php`) applies them in order and records each
 applied file in the `schema_migrations` table.
 
+Auto-run migration safety contract:
+- Auto-run migrations must not use dynamic SQL control statements (`PREPARE`, `EXECUTE`, `DEALLOCATE PREPARE`, `SIGNAL SQLSTATE`)
+- Auto-run migrations must not ship unresolved `REPLACE_*` placeholders
+- One-off operational migrations must include `-- @ops_only` at the top and are skipped by `db/migrate.php`
+
 To add a new migration:
 1. Create `db/migrations/013_your_description.sql`
 2. Write idempotent SQL (use `CREATE TABLE IF NOT EXISTS`, `ON DUPLICATE KEY UPDATE`, etc.)
@@ -145,12 +150,24 @@ Never edit already-applied migrations in production. Create a new migration file
   Co-Authored-By: Oz <oz-agent@warp.dev>
   ```
 
+### Release contract
+- Canonical production branch: `main`
+- Deploy workflow (`.github/workflows/deploy.yml`) is valid only for ref `refs/heads/main`
+- `workflow_dispatch` runs must target `main`; non-main refs are blocked by workflow guard
+- `production` is not an auto-deploy source branch; treat it as an optional coordination branch only
+- Rollback path: revert/cherry-pick fixes into `main`, then redeploy from `main`
+
 ---
 
 ## Deployment
 
 See `dist/DEPLOY.md` for the FTP deploy runbook and `docs/CONFIG.md` for
 the full production configuration walkthrough.
+
+Production deploy trigger policy:
+- Automatic: push to `main`
+- Manual: run `Deploy marketplace` on `main` only
+- Any attempt to run this workflow from other refs fails fast by design
 
 Before deploying:
 - `APP_ENV=production`, `APP_DEBUG=false`

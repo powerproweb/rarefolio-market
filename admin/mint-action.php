@@ -158,10 +158,11 @@ function callSidecarPrepare(PDO $pdo, array $row, ?string $recipient): array
     $payload = [
         'rarefolio_token_id' => $row['rarefolio_token_id'],
         'collection_slug'    => $row['collection_slug'],
-        'policy_id'          => $row['policy_id'] ?: null,
         'asset_name_utf8'    => @hex2bin($row['asset_name_hex']) ?: $row['asset_name_hex'],
         'recipient_addr'     => $recipient ?: 'addr_test1qq_placeholder_recipient',
         'cip25'              => $cip25,
+        // Always resolve policy script from qd_collections.policy_env_key.
+        // Do not forward qd_mint_queue.policy_id, it may be stale after cutovers.
         'policy_env_key'     => $collectionConfig['policy_env_key'],
         'lock_slot'          => $collectionConfig['lock_slot'],
     ];

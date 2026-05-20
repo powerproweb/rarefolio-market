@@ -15,6 +15,8 @@ const BASE          = process.env.SIDECAR_BASE_URL || 'http://localhost:4000';
 const POLICY_READY  = Boolean(process.env.POLICY_MNEMONIC?.trim());
 const BLOCKFROST_READY = Boolean(process.env.BLOCKFROST_API_KEY?.trim());
 const COMPANION_TEST_ENV_KEY = (process.env.COMPANION_TEST_ENV_KEY || '').trim().toUpperCase();
+const UNPAIRED_TRANSFER_ENABLED =
+    String(process.env.COMPANION_UNPAIRED_TRANSFER_ENABLED || '').trim().toLowerCase() === 'true';
 let POLICY_ADDR = null;
 
 let pass = 0;
@@ -183,14 +185,25 @@ await test('GET /companion/treasury/:envKey/balance with invalid env key returns
     const r = await fetch(`${BASE}/companion/treasury/INVALID-ENV-KEY/balance`);
     expect(r.status === 400, `expected 400 got ${r.status}`);
 });
+await test('GET /companion/treasury/:envKey/unit/:unit/balance with invalid unit returns 400', async () => {
+    const r = await fetch(`${BASE}/companion/treasury/FOUNDERS/unit/not-hex/balance`);
+    expect(r.status === 400, `expected 400 got ${r.status}`);
+});
 
-await test('POST /companion/transfer with missing fields returns 400', async () => {
+await test('POST /companion/transfer with missing fields returns expected status', async () => {
     const r = await fetch(`${BASE}/companion/transfer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ treasury_env_key: 'FOUNDERS' }),
     });
-    expect(r.status === 400, `expected 400 got ${r.status}`);
+    const expectedStatus = UNPAIRED_TRANSFER_ENABLED ? 400 : 403;
+    expect(r.status === expectedStatus, `expected ${expectedStatus} got ${r.status}`);
+    const j = await r.json();
+    if (expectedStatus === 400) {
+        expect(Array.isArray(j.issues), 'expected issues array in 400 response');
+    } else {
+        expect(j.error === 'unpaired_transfer_disabled', `unexpected error: ${j.error}`);
+    }
 });
 
 if (COMPANION_TEST_ENV_KEY) {
@@ -206,8 +219,25 @@ if (COMPANION_TEST_ENV_KEY) {
             expect(txt.length > 0, `expected non-empty error body, got status ${r.status}`);
         }
     });
+    await test('GET /companion/treasury/:envKey/unit/:unit/balance route is available for configured key', async () => {
+        const fakeUnit = '0'.repeat(56);
+        const r = await fetch(
+            `${BASE}/companion/treasury/${encodeURIComponent(COMPANION_TEST_ENV_KEY)}/unit/${fakeUnit}/balance`,
+        );
+        expect(r.status !== 404, `unexpected 404 for unit-balance route ${COMPANION_TEST_ENV_KEY}`);
+        if (r.status === 200) {
+            const j = await r.json();
+            expect(j.env_key === COMPANION_TEST_ENV_KEY, `env_key mismatch: ${j.env_key}`);
+            expect(j.unit === fakeUnit, `unit mismatch: ${j.unit}`);
+            expect(typeof j.quantity === 'string', 'missing quantity');
+        } else {
+            const txt = await r.text();
+            expect(txt.length > 0, `expected non-empty error body, got status ${r.status}`);
+        }
+    });
 } else {
     skipTest('GET /companion/treasury/:envKey/balance configured-key check', 'COMPANION_TEST_ENV_KEY not set');
+    skipTest('GET /companion/treasury/:envKey/unit/:unit/balance configured-key check', 'COMPANION_TEST_ENV_KEY not set');
 }
 
 console.log(`\nResults: ${pass} passed, ${fail} failed, ${skip} skipped`);

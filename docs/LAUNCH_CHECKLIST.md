@@ -16,6 +16,13 @@
 - [x] Verify Blockfrost key/network alignment on server (`MAINNET_HTTP:200`, `PREPROD_HTTP:403` for both env files)
 - [x] Permanent `listing_id` fix in `api/buy-order.php` deployed and production-verified with a clean no-workaround order test (`order_id=9`, non-null `listing_id`, mint tx confirmed)
 - [x] `SPLIT_MNEMONIC_FOUNDERS_V2` restored and sidecar recycled; `GET /sweep/balance/FOUNDERS_V2` now returns normal wallet balance payload
+- [x] Production deploy update (2026-05-20): deployed `/sidecar/test-smoke.mjs` to production after creating backup `/home/rarefolio/public_html/market.rarefolio.io/sidecar/test-smoke.mjs.bak_20260520T174230Z`
+- [x] Phase G smoke rerun complete (2026-05-20):
+  - sidecar smoke: `13 passed, 0 failed, 2 skipped`
+  - API health: `GET https://market.rarefolio.io/api/v1/health` returned `ok=true` and `db=ok`
+  - admin checks: `GET https://market.rarefolio.io/admin/` returned `302` to login, `GET https://market.rarefolio.io/admin/login.php` returned `200`, `GET https://rarefolio.io/admin/` returned `401` Basic Auth challenge
+  - token and order smoke: `php tests/test_lazy_mint_e2e.php` against production base returned `6 passed, 0 failed, 0 skipped`
+- [x] DNS check (2026-05-20): `rarefolio.io` and `market.rarefolio.io` both resolve to `50.6.202.60`
 
 ---
 
@@ -144,11 +151,11 @@ Gate passed on 2026-04-24. See `docs/FOUNDERS_MINT_LOG.md` for tx hashes and ver
 
 ## PHASE G — Launch Day
 
-- [ ] Point DNS to the marketplace server
-- [ ] DNS propagation check (`dig +short rarefolio.io`)
-- [ ] Final smoke test: `node sidecar/test-smoke.mjs`
-- [ ] Final API test: `curl https://rarefolio.io/api/v1/health`
-- [ ] Final admin login check: `https://rarefolio.io/admin/`
+- [x] Point DNS to the marketplace server
+- [x] DNS propagation check (`dig +short rarefolio.io`)
+- [x] Final smoke test: `node sidecar/test-smoke.mjs`
+- [x] Final API test: `curl https://market.rarefolio.io/api/v1/health`
+- [x] Final admin login check: `https://rarefolio.io/admin/`
 - [ ] Announce
 
 ---

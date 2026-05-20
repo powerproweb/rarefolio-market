@@ -170,10 +170,12 @@ hydrateChainFieldsIfMissing($pdo, $row);
 
 // Try to pull bar_serial from CIP-25 attributes; fall back to null if unknown.
 $barSerial = null;
-$cip25 = null;
+$cip25Resolved = null;
+$cip25Root = null;
 if (!empty($row['cip25_json'])) {
     $decoded = json_decode((string) $row['cip25_json'], true) ?: null;
-    $cip25 = is_array($decoded)
+    $cip25Root = is_array($decoded) ? $decoded : null;
+    $cip25Resolved = is_array($decoded)
         ? resolveCip25TokenMetadata(
             $decoded,
             (string) ($row['policy_id'] ?? ''),
@@ -182,14 +184,25 @@ if (!empty($row['cip25_json'])) {
             (string) ($row['rarefolio_token_id'] ?? '')
         )
         : null;
-    if (is_array($cip25)) {
+    if (is_array($cip25Resolved)) {
         $candidates = [
-            $cip25['bar_serial']              ?? null,
-            $cip25['attributes']['bar_serial']?? null,
-            $cip25['properties']['bar_serial']?? null,
-            cip25AttributeValue($cip25, 'bar_serial'),
+            $cip25Resolved['bar_serial']               ?? null,
+            $cip25Resolved['attributes']['bar_serial'] ?? null,
+            $cip25Resolved['properties']['bar_serial'] ?? null,
+            cip25AttributeValue($cip25Resolved, 'bar_serial'),
         ];
         foreach ($candidates as $c) {
+            if (is_string($c) && $c !== '') { $barSerial = $c; break; }
+        }
+    }
+    if ($barSerial === null && is_array($cip25Root)) {
+        $rootCandidates = [
+            $cip25Root['bar_serial']               ?? null,
+            $cip25Root['attributes']['bar_serial'] ?? null,
+            $cip25Root['properties']['bar_serial'] ?? null,
+            cip25AttributeValue($cip25Root, 'bar_serial'),
+        ];
+        foreach ($rootCandidates as $c) {
             if (is_string($c) && $c !== '') { $barSerial = $c; break; }
         }
     }
@@ -201,61 +214,129 @@ $companionAssetName = null;
 $companionTxHash = null;
 $companionStatus = null;
 $companionEnabledFlag = null;
-if (is_array($cip25)) {
+if (is_array($cip25Resolved)) {
     $proofManifestUri = firstStringValue([
-        $cip25['proof_manifest_uri'] ?? null,
-        $cip25['proof_manifest'] ?? null,
-        $cip25['manifest_uri'] ?? null,
-        $cip25['proof']['manifest_uri'] ?? null,
-        $cip25['attributes']['proof_manifest_uri'] ?? null,
-        cip25AttributeValue($cip25, 'proof_manifest_uri'),
-        cip25AttributeValue($cip25, 'manifest_uri'),
+        $cip25Resolved['proof_manifest_uri'] ?? null,
+        $cip25Resolved['proof_manifest'] ?? null,
+        $cip25Resolved['manifest_uri'] ?? null,
+        $cip25Resolved['proof']['manifest_uri'] ?? null,
+        $cip25Resolved['attributes']['proof_manifest_uri'] ?? null,
+        cip25AttributeValue($cip25Resolved, 'proof_manifest_uri'),
+        cip25AttributeValue($cip25Resolved, 'manifest_uri'),
     ]);
     $proofEvidenceUrl = firstStringValue([
-        $cip25['evidence_public_url'] ?? null,
-        $cip25['proof_evidence_url'] ?? null,
-        $cip25['proof']['evidence_public_url'] ?? null,
-        $cip25['evidence']['public_url'] ?? null,
-        $cip25['attributes']['evidence_public_url'] ?? null,
-        cip25AttributeValue($cip25, 'evidence_public_url'),
-        cip25AttributeValue($cip25, 'proof_evidence_url'),
+        $cip25Resolved['evidence_public_url'] ?? null,
+        $cip25Resolved['proof_evidence_url'] ?? null,
+        $cip25Resolved['proof']['evidence_public_url'] ?? null,
+        $cip25Resolved['evidence']['public_url'] ?? null,
+        $cip25Resolved['attributes']['evidence_public_url'] ?? null,
+        cip25AttributeValue($cip25Resolved, 'evidence_public_url'),
+        cip25AttributeValue($cip25Resolved, 'proof_evidence_url'),
     ]);
     $companionAssetName = firstStringValue([
-        $cip25['companion_asset_name'] ?? null,
-        $cip25['companion']['asset_name'] ?? null,
-        $cip25['attributes']['companion_asset_name'] ?? null,
-        $cip25['silver_shard_name'] ?? null,
-        $cip25['silver_shard_asset_name_utf8'] ?? null,
-        $cip25['attributes']['silver_shard_name'] ?? null,
-        cip25AttributeValue($cip25, 'companion_asset_name'),
-        cip25AttributeValue($cip25, 'silver_shard_name'),
-        cip25AttributeValue($cip25, 'silver_shard_asset_name_utf8'),
+        $cip25Resolved['companion_asset_name'] ?? null,
+        $cip25Resolved['companion']['asset_name'] ?? null,
+        $cip25Resolved['attributes']['companion_asset_name'] ?? null,
+        $cip25Resolved['silver_shard_name'] ?? null,
+        $cip25Resolved['silver_shard_asset_name_utf8'] ?? null,
+        $cip25Resolved['attributes']['silver_shard_name'] ?? null,
+        cip25AttributeValue($cip25Resolved, 'companion_asset_name'),
+        cip25AttributeValue($cip25Resolved, 'silver_shard_name'),
+        cip25AttributeValue($cip25Resolved, 'silver_shard_asset_name_utf8'),
     ]);
     $companionTxHash = firstStringValue([
-        $cip25['companion_tx_hash'] ?? null,
-        $cip25['companion']['tx_hash'] ?? null,
-        $cip25['attributes']['companion_tx_hash'] ?? null,
-        $cip25['silver_shard_mint_tx_hash'] ?? null,
-        $cip25['attributes']['silver_shard_mint_tx_hash'] ?? null,
-        cip25AttributeValue($cip25, 'companion_tx_hash'),
-        cip25AttributeValue($cip25, 'silver_shard_mint_tx_hash'),
+        $cip25Resolved['companion_tx_hash'] ?? null,
+        $cip25Resolved['companion']['tx_hash'] ?? null,
+        $cip25Resolved['attributes']['companion_tx_hash'] ?? null,
+        $cip25Resolved['silver_shard_mint_tx_hash'] ?? null,
+        $cip25Resolved['attributes']['silver_shard_mint_tx_hash'] ?? null,
+        cip25AttributeValue($cip25Resolved, 'companion_tx_hash'),
+        cip25AttributeValue($cip25Resolved, 'silver_shard_mint_tx_hash'),
     ]);
     $companionStatus = firstStringValue([
-        $cip25['companion_status'] ?? null,
-        $cip25['companion']['status'] ?? null,
-        $cip25['companion']['delivery']['status'] ?? null,
-        $cip25['attributes']['companion_status'] ?? null,
-        cip25AttributeValue($cip25, 'companion_status'),
+        $cip25Resolved['companion_status'] ?? null,
+        $cip25Resolved['companion']['status'] ?? null,
+        $cip25Resolved['companion']['delivery']['status'] ?? null,
+        $cip25Resolved['attributes']['companion_status'] ?? null,
+        cip25AttributeValue($cip25Resolved, 'companion_status'),
     ]);
     $companionEnabledFlag = firstBoolValue([
-        $cip25['companion_enabled'] ?? null,
-        $cip25['companion']['enabled'] ?? null,
-        $cip25['attributes']['companion_enabled'] ?? null,
-        $cip25['silver_shard_enabled'] ?? null,
-        $cip25['attributes']['silver_shard_enabled'] ?? null,
-        cip25AttributeValue($cip25, 'companion_enabled'),
-        cip25AttributeValue($cip25, 'silver_shard_enabled'),
+        $cip25Resolved['companion_enabled'] ?? null,
+        $cip25Resolved['companion']['enabled'] ?? null,
+        $cip25Resolved['attributes']['companion_enabled'] ?? null,
+        $cip25Resolved['silver_shard_enabled'] ?? null,
+        $cip25Resolved['attributes']['silver_shard_enabled'] ?? null,
+        cip25AttributeValue($cip25Resolved, 'companion_enabled'),
+        cip25AttributeValue($cip25Resolved, 'silver_shard_enabled'),
     ]);
+}
+if (is_array($cip25Root)) {
+    if ($proofManifestUri === null) {
+        $proofManifestUri = firstStringValue([
+            $cip25Root['proof_manifest_uri'] ?? null,
+            $cip25Root['proof_manifest'] ?? null,
+            $cip25Root['manifest_uri'] ?? null,
+            $cip25Root['proof']['manifest_uri'] ?? null,
+            $cip25Root['attributes']['proof_manifest_uri'] ?? null,
+            cip25AttributeValue($cip25Root, 'proof_manifest_uri'),
+            cip25AttributeValue($cip25Root, 'manifest_uri'),
+        ]);
+    }
+    if ($proofEvidenceUrl === null) {
+        $proofEvidenceUrl = firstStringValue([
+            $cip25Root['evidence_public_url'] ?? null,
+            $cip25Root['proof_evidence_url'] ?? null,
+            $cip25Root['proof']['evidence_public_url'] ?? null,
+            $cip25Root['evidence']['public_url'] ?? null,
+            $cip25Root['attributes']['evidence_public_url'] ?? null,
+            cip25AttributeValue($cip25Root, 'evidence_public_url'),
+            cip25AttributeValue($cip25Root, 'proof_evidence_url'),
+        ]);
+    }
+    if ($companionAssetName === null) {
+        $companionAssetName = firstStringValue([
+            $cip25Root['companion_asset_name'] ?? null,
+            $cip25Root['companion']['asset_name'] ?? null,
+            $cip25Root['attributes']['companion_asset_name'] ?? null,
+            $cip25Root['silver_shard_name'] ?? null,
+            $cip25Root['silver_shard_asset_name_utf8'] ?? null,
+            $cip25Root['attributes']['silver_shard_name'] ?? null,
+            cip25AttributeValue($cip25Root, 'companion_asset_name'),
+            cip25AttributeValue($cip25Root, 'silver_shard_name'),
+            cip25AttributeValue($cip25Root, 'silver_shard_asset_name_utf8'),
+        ]);
+    }
+    if ($companionTxHash === null) {
+        $companionTxHash = firstStringValue([
+            $cip25Root['companion_tx_hash'] ?? null,
+            $cip25Root['companion']['tx_hash'] ?? null,
+            $cip25Root['attributes']['companion_tx_hash'] ?? null,
+            $cip25Root['silver_shard_mint_tx_hash'] ?? null,
+            $cip25Root['attributes']['silver_shard_mint_tx_hash'] ?? null,
+            cip25AttributeValue($cip25Root, 'companion_tx_hash'),
+            cip25AttributeValue($cip25Root, 'silver_shard_mint_tx_hash'),
+        ]);
+    }
+    if ($companionStatus === null) {
+        $companionStatus = firstStringValue([
+            $cip25Root['companion_status'] ?? null,
+            $cip25Root['companion']['status'] ?? null,
+            $cip25Root['companion']['delivery']['status'] ?? null,
+            $cip25Root['attributes']['companion_status'] ?? null,
+            cip25AttributeValue($cip25Root, 'companion_status'),
+        ]);
+    }
+    if ($companionEnabledFlag === null) {
+        $companionEnabledFlag = firstBoolValue([
+            $cip25Root['companion_enabled'] ?? null,
+            $cip25Root['companion']['enabled'] ?? null,
+            $cip25Root['attributes']['companion_enabled'] ?? null,
+            $cip25Root['silver_shard_enabled'] ?? null,
+            $cip25Root['attributes']['silver_shard_enabled'] ?? null,
+            cip25AttributeValue($cip25Root, 'companion_enabled'),
+            cip25AttributeValue($cip25Root, 'silver_shard_enabled'),
+        ]);
+    }
 }
 $isFoundersCollection = in_array((string) $row['collection_slug'], ['silverbar-01-founders-v2', 'silverbar-01-founders'], true);
 if ($isFoundersCollection) {

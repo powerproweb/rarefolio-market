@@ -219,6 +219,7 @@ require __DIR__ . '/includes/header.php';
         </p>
         <div class="rf-toolbar" style="margin:0; flex-wrap:wrap;">
             <a class="rf-btn" href="/admin/orders.php">Orders</a>
+            <a class="rf-btn rf-btn-ghost" href="/admin/wallets.php">Wallets</a>
             <a class="rf-btn rf-btn-ghost" href="/admin/mint.php">Mint queue</a>
             <a class="rf-btn rf-btn-ghost" href="/admin/asset-lookup.php">Asset lookup</a>
         </div>
@@ -404,6 +405,7 @@ require __DIR__ . '/includes/header.php';
 <h2>Quick actions</h2>
 <div class="rf-toolbar">
     <a class="rf-btn" href="/admin/mint-new.php">+ New mint</a>
+    <a class="rf-btn rf-btn-ghost" href="/admin/wallets.php">Wallets</a>
     <a class="rf-btn rf-btn-ghost" href="/admin/mint.php">Mint queue</a>
     <a class="rf-btn rf-btn-ghost" href="/admin/asset-lookup.php">Asset lookup</a>
     <?php if ($activityCount !== null): ?>

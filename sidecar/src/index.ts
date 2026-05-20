@@ -11,7 +11,9 @@
  *   GET  /sync/token/:unit        current owner lookup for a single asset
  *   GET  /sync/policy/:policyId   bulk ownership sync for a full policy
  *   GET  /companion/treasury/:envKey/balance companion treasury balance
+ *   GET  /companion/treasury/:envKey/unit/:unit/balance companion treasury unit balance
  *   POST /companion/transfer      transfer companion asset from treasury
+ *   POST /companion/transfer-paired transfer NFT + companion together from treasury
  *   POST /auth/verify-signature   verify CIP-30 signData payload
  *   POST /auth/reward-address     derive reward/stake address
  *   GET  /handle/:handle          ADA Handle -> address resolution

@@ -40,11 +40,17 @@ Additional safety modes:
 ```powershell
 php db/migrate.php --mode=plan
 php db/migrate.php --mode=dry-run
+php db/migrate.php --mode=dry-run --dry-run-db=rarefolio_market_dryrun
 ```
 
 - `plan` lists pending migrations and validates guard rules without applying SQL.
-- `dry-run` clones the current schema into a disposable shadow database, applies
-  pending migrations there, and drops the shadow database on completion.
+- `dry-run` clones the current schema into a shadow database and applies pending
+  migrations there.
+  - Default behavior uses an ephemeral shadow DB (requires `CREATE DATABASE` privilege).
+  - For shared hosting production, provide a pre-created shadow DB with either:
+    - `--dry-run-db=<name>` (CLI), or
+    - `MIGRATION_DRY_RUN_DB=<name>` in `.env`.
+  - When using `MIGRATION_DRY_RUN_DB`, the runner resets that schema in place before each dry-run.
 
 ### 4. Start the sidecar
 
@@ -183,6 +189,8 @@ Before deploying:
 - `APP_ENV=production`, `APP_DEBUG=false`
 - `CORS_ALLOWED_ORIGINS` contains only real production origins
 - `PUBLIC_SITE_WEBHOOK_SECRET` is a fresh 64-char hex secret
+- `MIGRATION_DRY_RUN_DB` exists on the server and is writable by `DB_USER`
+- GitHub Actions secret `MIGRATION_DRY_RUN_DB` matches server `.env` (for deploy dry-run)
 - `RATE_LIMIT_CAPACITY` and `RATE_LIMIT_WINDOW_SECONDS` are non-zero
 - `POLICY_MNEMONIC` is set and the policy wallet is funded
 - `verify.php` and `tests/` are removed from the production web root

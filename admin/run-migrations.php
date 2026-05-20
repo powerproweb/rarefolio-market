@@ -31,6 +31,28 @@ function parseJsonBody(): array
     return is_array($decoded) ? $decoded : [];
 }
 
+function parseDryRunDbValue(mixed $value): ?string
+{
+    if ($value === null) {
+        return null;
+    }
+    if (!is_string($value)) {
+        throw new InvalidArgumentException('dry_run_db must be a string');
+    }
+
+    $name = trim($value);
+    if ($name === '') {
+        return null;
+    }
+    if (!preg_match('/^[A-Za-z0-9_]+$/', $name)) {
+        throw new InvalidArgumentException('dry_run_db must contain only letters, numbers, and underscore');
+    }
+    if (strlen($name) > 64) {
+        throw new InvalidArgumentException('dry_run_db must be at most 64 characters');
+    }
+    return $name;
+}
+
 // ---- Auth: constant-time compare against DEPLOY_WEBHOOK_SECRET ----
 $envFile = __DIR__ . '/../.env';
 $secret  = '';
@@ -68,6 +90,18 @@ if (!is_string($mode) || !in_array($mode, RF_HTTP_MIGRATION_MODES, true)) {
     exit;
 }
 
+try {
+    $dryRunDb = parseDryRunDbValue($_POST['dry_run_db'] ?? $jsonBody['dry_run_db'] ?? $_GET['dry_run_db'] ?? null);
+} catch (InvalidArgumentException $e) {
+    http_response_code(400);
+    echo json_encode([
+        'ok' => false,
+        'error' => 'invalid_dry_run_db',
+        'detail' => $e->getMessage(),
+    ]);
+    exit;
+}
+
 // ---- Run migrations ----
 $migrationsDir = __DIR__ . '/../db/migrate.php';
 if (!is_file($migrationsDir)) {
@@ -82,6 +116,13 @@ $startedAt = microtime(true);
 try {
     putenv('RF_MIGRATION_MODE=' . $mode);
     $GLOBALS['RF_MIGRATION_MODE'] = $mode;
+    if ($dryRunDb !== null) {
+        putenv('RF_MIGRATION_DRY_RUN_DB=' . $dryRunDb);
+        $GLOBALS['RF_MIGRATION_DRY_RUN_DB'] = $dryRunDb;
+    } else {
+        putenv('RF_MIGRATION_DRY_RUN_DB');
+        unset($GLOBALS['RF_MIGRATION_DRY_RUN_DB']);
+    }
     // Capture stdout/stderr from the migration runner
     include $migrationsDir;
 } catch (Throwable $e) {
@@ -95,6 +136,7 @@ http_response_code($exitCode === 0 ? 200 : 500);
 echo json_encode([
     'ok'     => $exitCode === 0,
     'mode'   => $mode,
+    'dry_run_db' => $dryRunDb,
     'elapsed_seconds' => round($elapsedSeconds, 3),
     'output' => $output,
 ]);

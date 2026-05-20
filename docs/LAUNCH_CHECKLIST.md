@@ -5,7 +5,7 @@
 
 ---
 
-## Current execution snapshot (2026-05-19)
+## Current execution snapshot (2026-05-20)
 
 - [x] **E.2 complete:** all 8 Founders tokens minted + confirmed on preprod (`docs/FOUNDERS_MINT_LOG.md`)
 - [x] **E.3 complete:** CID replacement applied using `db/migrations/017_update_founders_ipfs_cids.sql` and `db/migrations/018_fix_founders_ipfs_cids.sql`
@@ -23,6 +23,9 @@
   - admin checks: `GET https://market.rarefolio.io/admin/` returned `302` to login, `GET https://market.rarefolio.io/admin/login.php` returned `200`, `GET https://rarefolio.io/admin/` returned `401` Basic Auth challenge
   - token and order smoke: `php tests/test_lazy_mint_e2e.php` against production base returned `6 passed, 0 failed, 0 skipped`
 - [x] DNS check (2026-05-20): `rarefolio.io` and `market.rarefolio.io` both resolve to `50.6.202.60`
+- [x] Claim verifier auth mismatch hardening complete (2026-05-20):
+  - `api/private/ownership-verify.php` now accepts rotated secret candidates and `X-Download-Verify-Secret`
+  - Rarefolio claim caller now retries configured current plus previous verifier secrets before surfacing auth failure
 
 ---
 

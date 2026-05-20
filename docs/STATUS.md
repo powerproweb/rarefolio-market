@@ -7,6 +7,13 @@
 - **Phase E.3 complete (CID replacement):** Founders IPFS CID applied via:
   - `db/migrations/017_update_founders_ipfs_cids.sql`
   - `db/migrations/018_fix_founders_ipfs_cids.sql`
+- **Claim verifier auth mismatch hardening complete (2026-05-20):**
+  - `api/private/ownership-verify.php` now authenticates against a bounded candidate set:
+    - `DOWNLOAD_VERIFY_SHARED_SECRET`
+    - `DOWNLOAD_VERIFY_SHARED_SECRET_PREVIOUS` (optional)
+    - `PUBLIC_SITE_WEBHOOK_SECRET` fallback when `DOWNLOAD_VERIFY_ALLOW_WEBHOOK_FALLBACK=true`
+  - ownership verifier now also accepts `X-Download-Verify-Secret` in addition to existing auth headers.
+  - env template updated in `.env.example` for rotation-safe verifier auth settings.
 - **Non-burn policy and CID cutover complete in production (2026-05-18):**
   - `db/migrations/020_non_burn_collection_policy_cutover.sql` applied at `2026-05-18 10:10:27`
   - `db/migrations/021_non_burn_cid_cutover.sql` applied at `2026-05-18 10:12:09`
@@ -84,8 +91,10 @@
     - sidecar process recycled
     - `GET /sweep/balance/FOUNDERS_V2` now returns wallet address and balance payload
 ## Local repository state
-- Working tree currently includes one uncommitted code fix: `api/buy-order.php`
-- This status file is updated after production verification closure and Phase F readiness checks
+- Working tree currently includes uncommitted claim verifier auth hardening updates:
+  - `api/private/ownership-verify.php`
+  - `.env.example`
+- This status file was refreshed after claim verifier mismatch closure work.
 ---
 ## Current blockers (Phase G gate)
 1. Execute launch announcement window.

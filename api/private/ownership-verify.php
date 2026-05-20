@@ -6,7 +6,13 @@
  *
  * Auth:
  *   Authorization: Bearer <DOWNLOAD_VERIFY_SHARED_SECRET>
- *   (fallback accepted: X-RF-Verify-Secret: <DOWNLOAD_VERIFY_SHARED_SECRET>)
+ *   accepted secrets:
+ *     - DOWNLOAD_VERIFY_SHARED_SECRET
+ *     - DOWNLOAD_VERIFY_SHARED_SECRET_PREVIOUS (optional)
+ *     - PUBLIC_SITE_WEBHOOK_SECRET (optional compatibility fallback)
+ *   fallback headers:
+ *     - X-RF-Verify-Secret
+ *     - X-Download-Verify-Secret
  *
  * Body:
  *   {
@@ -67,6 +73,46 @@ function request_header_value(string $name): string
     }
 
     return '';
+}
+/**
+ * @return string[]
+ */
+function parse_secret_candidates(string $raw): array
+{
+    $out = [];
+    foreach (preg_split('/\s*,\s*/', trim($raw)) ?: [] as $candidate) {
+        $candidate = trim((string) $candidate);
+        if ($candidate === '' || in_array($candidate, $out, true)) continue;
+        $out[] = $candidate;
+    }
+    return $out;
+}
+/**
+ * @return string[]
+ */
+function configured_shared_secrets(): array
+{
+    $values = array_merge(
+        parse_secret_candidates((string) Config::get('DOWNLOAD_VERIFY_SHARED_SECRET', '')),
+        parse_secret_candidates((string) Config::get('DOWNLOAD_VERIFY_SHARED_SECRET_PREVIOUS', ''))
+    );
+
+    // Compatibility fallback: allow current webhook secret by default so
+    // ownership verifier remains available during secret rollout drift.
+    $allowWebhookFallback = Config::bool('DOWNLOAD_VERIFY_ALLOW_WEBHOOK_FALLBACK', true);
+    if ($allowWebhookFallback) {
+        $values = array_merge(
+            $values,
+            parse_secret_candidates((string) Config::get('PUBLIC_SITE_WEBHOOK_SECRET', ''))
+        );
+    }
+
+    $out = [];
+    foreach ($values as $value) {
+        if ($value === '' || in_array($value, $out, true)) continue;
+        $out[] = $value;
+    }
+    return $out;
 }
 
 function request_shared_secret(): string
@@ -289,13 +335,22 @@ if ($method !== 'POST') {
     fail_json(405, 'POST required');
 }
 
-$secret = (string) Config::get('DOWNLOAD_VERIFY_SHARED_SECRET', '');
-if ($secret === '') {
+$secrets = configured_shared_secrets();
+if ($secrets === []) {
     fail_json(503, 'DOWNLOAD_VERIFY_SHARED_SECRET not configured');
 }
 
 $token = request_shared_secret();
-if ($token === '' || !hash_equals($secret, $token)) {
+$authorized = false;
+if ($token !== '') {
+    foreach ($secrets as $secret) {
+        if (hash_equals($secret, $token)) {
+            $authorized = true;
+            break;
+        }
+    }
+}
+if (!$authorized) {
     fail_json(401, 'unauthorized');
 }
 

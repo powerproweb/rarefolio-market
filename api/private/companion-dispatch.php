@@ -138,6 +138,15 @@ function normalize_unit(string $raw): ?string
     return $unit;
 }
 
+function parse_quantity(string $raw): int
+{
+    $q = trim($raw);
+    if ($q === '' || preg_match('/^\d+$/', $q) !== 1) return 0;
+    if (strlen($q) > 18) return PHP_INT_MAX;
+    $n = (int) $q;
+    return $n > 0 ? $n : 0;
+}
+
 /**
  * @param array<string,mixed> $cip25
  */
@@ -167,13 +176,111 @@ function decode_cip25_json(mixed $raw): array
     $decoded = json_decode($raw, true);
     return is_array($decoded) ? $decoded : [];
 }
+/**
+ * @param array<string,mixed> $cip25
+ */
+function companion_already_submitted(array $cip25): bool
+{
+    $statusCandidates = [
+        $cip25['companion_status'] ?? null,
+        $cip25['companion']['status'] ?? null,
+        $cip25['companion']['delivery']['status'] ?? null,
+    ];
+    foreach ($statusCandidates as $status) {
+        if (is_string($status) && strtolower(trim($status)) === 'submitted') {
+            return true;
+        }
+    }
+
+    $txCandidates = [
+        $cip25['companion_tx_hash'] ?? null,
+        $cip25['companion']['tx_hash'] ?? null,
+        $cip25['companion']['delivery']['tx_hash'] ?? null,
+    ];
+    foreach ($txCandidates as $txHash) {
+        if (is_string($txHash) && preg_match('/^[0-9a-f]{64}$/i', trim($txHash)) === 1) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * @param array<string,mixed> $cip25
+ * @return array{0: ?string, 1: ?string}
+ */
+function resolve_v721_path_keys(
+    array $cip25,
+    string $policyId,
+    string $assetNameUtf8,
+    string $assetNameHex,
+    string $tokenId
+): array {
+    if (!isset($cip25['721']) || !is_array($cip25['721'])) {
+        return [null, null];
+    }
+    $v721 = $cip25['721'];
+
+    $policyCandidates = [];
+    foreach ([$policyId, strtolower($policyId), strtoupper($policyId)] as $candidate) {
+        if (is_string($candidate) && $candidate !== '' && !in_array($candidate, $policyCandidates, true)) {
+            $policyCandidates[] = $candidate;
+        }
+    }
+    foreach ($v721 as $policyKey => $policyBlock) {
+        if ($policyKey === 'version' || !is_array($policyBlock)) continue;
+        $pk = (string) $policyKey;
+        if (!in_array($pk, $policyCandidates, true)) {
+            $policyCandidates[] = $pk;
+        }
+    }
+
+    $selectedPolicy = null;
+    foreach ($policyCandidates as $policyCandidate) {
+        $block = $v721[$policyCandidate] ?? null;
+        if (is_array($block)) {
+            $selectedPolicy = $policyCandidate;
+            break;
+        }
+    }
+    if ($selectedPolicy === null) return [null, null];
+
+    $policyBlock = $v721[$selectedPolicy];
+    $assetCandidates = [];
+    foreach ([$assetNameUtf8, $tokenId, $assetNameHex, strtolower($assetNameHex), strtoupper($assetNameHex)] as $candidate) {
+        if (is_string($candidate) && $candidate !== '' && !in_array($candidate, $assetCandidates, true)) {
+            $assetCandidates[] = $candidate;
+        }
+    }
+
+    foreach ($assetCandidates as $assetCandidate) {
+        if (isset($policyBlock[$assetCandidate]) && is_array($policyBlock[$assetCandidate])) {
+            return [$selectedPolicy, $assetCandidate];
+        }
+    }
+    foreach ($policyBlock as $assetKey => $assetMeta) {
+        if (is_array($assetMeta)) {
+            return [$selectedPolicy, (string) $assetKey];
+        }
+    }
+    if ($tokenId !== '') return [$selectedPolicy, $tokenId];
+    return [$selectedPolicy, null];
+}
 
 /**
  * @param array<string,mixed> $cip25
  * @return array<string,mixed>
  */
-function apply_companion_submission(array $cip25, string $txHash, ?string $unit = null): array
-{
+function apply_companion_submission(
+    array $cip25,
+    string $txHash,
+    ?string $unit = null,
+    string $policyId = '',
+    string $assetNameUtf8 = '',
+    string $assetNameHex = '',
+    string $tokenId = ''
+): array {
     $txHash = strtolower($txHash);
     $unit = $unit !== null ? strtolower(trim($unit)) : null;
     $cip25['companion_enabled'] = true;
@@ -200,6 +307,43 @@ function apply_companion_submission(array $cip25, string $txHash, ?string $unit 
     $companion['delivery'] = $delivery;
 
     $cip25['companion'] = $companion;
+
+    [$policyKey, $assetKey] = resolve_v721_path_keys($cip25, $policyId, $assetNameUtf8, $assetNameHex, $tokenId);
+    if ($policyKey !== null && $assetKey !== null && isset($cip25['721']) && is_array($cip25['721'])) {
+        $v721 = $cip25['721'];
+        $policyBlock = $v721[$policyKey] ?? [];
+        if (is_array($policyBlock)) {
+            $assetMeta = $policyBlock[$assetKey] ?? [];
+            if (!is_array($assetMeta)) $assetMeta = [];
+            $assetMeta['companion_enabled'] = true;
+            $assetMeta['companion_status'] = 'submitted';
+            $assetMeta['companion_tx_hash'] = $txHash;
+            if ($unit !== null && $unit !== '') {
+                $assetMeta['companion_unit'] = $unit;
+                $assetMeta['silver_shard_unit'] = $unit;
+            }
+
+            $assetCompanion = $assetMeta['companion'] ?? [];
+            if (!is_array($assetCompanion)) $assetCompanion = [];
+            $assetCompanion['enabled'] = true;
+            $assetCompanion['status'] = 'submitted';
+            $assetCompanion['tx_hash'] = $txHash;
+            if ($unit !== null && $unit !== '') {
+                $assetCompanion['unit'] = $unit;
+            }
+            $assetDelivery = $assetCompanion['delivery'] ?? [];
+            if (!is_array($assetDelivery)) $assetDelivery = [];
+            $assetDelivery['status'] = 'submitted';
+            $assetDelivery['tx_hash'] = $txHash;
+            $assetCompanion['delivery'] = $assetDelivery;
+            $assetMeta['companion'] = $assetCompanion;
+
+            $policyBlock[$assetKey] = $assetMeta;
+            $v721[$policyKey] = $policyBlock;
+            $cip25['721'] = $v721;
+        }
+    }
+
     return $cip25;
 }
 
@@ -219,6 +363,9 @@ function fetch_targets(PDO $pdo, array $orderIds, array $tokenIds, int $maxItems
                     t.id AS token_row_id,
                     t.rarefolio_token_id,
                     t.collection_slug,
+                    t.policy_id,
+                    t.asset_name_hex,
+                    t.asset_name_utf8,
                     t.cip25_json,
                     t.current_owner_wallet,
                     t.custody_status,
@@ -244,6 +391,9 @@ function fetch_targets(PDO $pdo, array $orderIds, array $tokenIds, int $maxItems
             "SELECT t.id AS token_row_id,
                     t.rarefolio_token_id,
                     t.collection_slug,
+                    t.policy_id,
+                    t.asset_name_hex,
+                    t.asset_name_utf8,
                     t.cip25_json,
                     t.current_owner_wallet,
                     t.custody_status,
@@ -354,6 +504,14 @@ try {
     );
 
     $results = [];
+    /** @var array<int,array<string,mixed>> $preparedTargets */
+    $preparedTargets = [];
+    /** @var array<string,int> $groupRequired */
+    $groupRequired = [];
+    /** @var array<string,array{env_key:string,unit:string}> $groupMeta */
+    $groupMeta = [];
+    /** @var array<string,array{ok:bool,available:int,raw_quantity:string,error?:string,required:int,env_key:string,unit:string}> $inventoryState */
+    $inventoryState = [];
     $submittedCount = 0;
     $failedCount = 0;
     $skippedCount = 0;
@@ -364,19 +522,24 @@ try {
         $orderId = (int) ($target['order_id'] ?? 0);
         $orderStatus = strtolower(trim((string) ($target['order_status'] ?? '')));
         $buyerAddr = trim((string) ($target['buyer_addr'] ?? ''));
-        $ownerAddr = trim((string) ($target['current_owner_wallet'] ?? ''));
         $recipientAddr = '';
         $recipientSource = '';
         if ($buyerAddr !== '' && in_array($orderStatus, ['submitted', 'settled'], true)) {
             $recipientAddr = $buyerAddr;
             $recipientSource = 'order';
-        } elseif ($ownerAddr !== '') {
-            $recipientAddr = $ownerAddr;
-            $recipientSource = 'owner_fallback';
         }
         $envKey = $overrideEnvKey ?? normalize_env_key((string) ($target['policy_env_key'] ?? ''));
         $cip25 = decode_cip25_json($target['cip25_json'] ?? null);
         $unit = $overrideUnit ?? resolve_companion_unit($cip25);
+        $policyId = strtolower(trim((string) ($target['policy_id'] ?? '')));
+        $assetNameHex = strtolower(trim((string) ($target['asset_name_hex'] ?? '')));
+        $nftUnit = null;
+        if (
+            preg_match('/^[0-9a-f]{56}$/', $policyId) === 1
+            && preg_match('/^[0-9a-f]+$/', $assetNameHex) === 1
+        ) {
+            $nftUnit = $policyId . $assetNameHex;
+        }
 
         if ($tokenId === '' || $tokenRowId <= 0) {
             $failedCount++;
@@ -388,13 +551,13 @@ try {
             ];
             continue;
         }
-        if ($orderId > 0 && $orderStatus !== '' && !in_array($orderStatus, ['submitted', 'settled'], true) && $buyerAddr !== '') {
+        if ($orderId <= 0 || !in_array($orderStatus, ['submitted', 'settled'], true) || $buyerAddr === '') {
             $skippedCount++;
             $results[] = [
                 'ok' => false,
                 'token_id' => $tokenId,
-                'order_id' => $orderId,
-                'reason' => 'order_not_dispatchable',
+                'order_id' => $orderId > 0 ? $orderId : null,
+                'reason' => 'strict_pair_requires_dispatchable_order',
                 'order_status' => $orderStatus,
             ];
             continue;
@@ -429,13 +592,197 @@ try {
             ];
             continue;
         }
+        if ($nftUnit === null) {
+            $skippedCount++;
+            $results[] = [
+                'ok' => false,
+                'token_id' => $tokenId,
+                'order_id' => $orderId,
+                'reason' => 'nft_unit_missing',
+            ];
+            continue;
+        }
+        if (companion_already_submitted($cip25)) {
+            $skippedCount++;
+            $results[] = [
+                'ok' => false,
+                'token_id' => $tokenId,
+                'order_id' => $orderId,
+                'reason' => 'companion_already_submitted',
+            ];
+            continue;
+        }
+
+        $companionInventoryKey = $envKey . '|COMPANION|' . $unit;
+        $nftInventoryKey = $envKey . '|NFT|' . $nftUnit;
+
+        $preparedTargets[] = [
+            'target' => $target,
+            'token_id' => $tokenId,
+            'token_row_id' => $tokenRowId,
+            'order_id' => $orderId,
+            'order_status' => $orderStatus,
+            'recipient_addr' => $recipientAddr,
+            'recipient_source' => $recipientSource !== '' ? $recipientSource : null,
+            'treasury_env_key' => $envKey,
+            'unit' => $unit,
+            'nft_unit' => $nftUnit,
+            'companion_inventory_key' => $companionInventoryKey,
+            'nft_inventory_key' => $nftInventoryKey,
+            'cip25' => $cip25,
+            'policy_id' => (string) ($target['policy_id'] ?? ''),
+            'asset_name_hex' => (string) ($target['asset_name_hex'] ?? ''),
+            'asset_name_utf8' => (string) ($target['asset_name_utf8'] ?? ''),
+        ];
+
+        if ($submit) {
+            $groupRequired[$companionInventoryKey] = (int) (($groupRequired[$companionInventoryKey] ?? 0) + 1);
+            if (!isset($groupMeta[$companionInventoryKey])) {
+                $groupMeta[$companionInventoryKey] = ['env_key' => $envKey, 'unit' => $unit];
+            }
+            $groupRequired[$nftInventoryKey] = (int) (($groupRequired[$nftInventoryKey] ?? 0) + 1);
+            if (!isset($groupMeta[$nftInventoryKey])) {
+                $groupMeta[$nftInventoryKey] = ['env_key' => $envKey, 'unit' => $nftUnit];
+            }
+        }
+    }
+
+    if ($submit) {
+        foreach ($groupRequired as $inventoryKey => $required) {
+            $meta = $groupMeta[$inventoryKey] ?? null;
+            if ($meta === null) continue;
+            $envKey = $meta['env_key'];
+            $unit = $meta['unit'];
+
+            if (!isset($treasuryChecks[$envKey]) || !is_array($treasuryChecks[$envKey])) {
+                $treasuryChecks[$envKey] = ['ok' => true];
+            }
+            if (!isset($treasuryChecks[$envKey]['unit_balances']) || !is_array($treasuryChecks[$envKey]['unit_balances'])) {
+                $treasuryChecks[$envKey]['unit_balances'] = [];
+            }
+
+            try {
+                $unitBalance = $sidecar->getCompanionTreasuryUnitBalance($envKey, $unit);
+                $rawQty = (string) ($unitBalance['quantity'] ?? '0');
+                $available = parse_quantity($rawQty);
+                $inventoryState[$inventoryKey] = [
+                    'ok' => true,
+                    'available' => $available,
+                    'raw_quantity' => $rawQty,
+                    'required' => $required,
+                    'env_key' => $envKey,
+                    'unit' => $unit,
+                ];
+                $treasuryChecks[$envKey]['unit_balances'][$unit] = $unitBalance;
+            } catch (Throwable $e) {
+                $inventoryState[$inventoryKey] = [
+                    'ok' => false,
+                    'available' => 0,
+                    'raw_quantity' => '0',
+                    'error' => $e->getMessage(),
+                    'required' => $required,
+                    'env_key' => $envKey,
+                    'unit' => $unit,
+                ];
+                $treasuryChecks[$envKey]['unit_balances'][$unit] = [
+                    'ok' => false,
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
+    }
+
+    foreach ($preparedTargets as $prepared) {
+        $tokenId = (string) ($prepared['token_id'] ?? '');
+        $tokenRowId = (int) ($prepared['token_row_id'] ?? 0);
+        $orderId = (int) ($prepared['order_id'] ?? 0);
+        $orderStatus = (string) ($prepared['order_status'] ?? '');
+        $recipientAddr = (string) ($prepared['recipient_addr'] ?? '');
+        $recipientSource = $prepared['recipient_source'] ?? null;
+        $envKey = (string) ($prepared['treasury_env_key'] ?? '');
+        $unit = (string) ($prepared['unit'] ?? '');
+        $nftUnit = (string) ($prepared['nft_unit'] ?? '');
+        $companionInventoryKey = (string) ($prepared['companion_inventory_key'] ?? '');
+        $nftInventoryKey = (string) ($prepared['nft_inventory_key'] ?? '');
+        $cip25 = is_array($prepared['cip25'] ?? null) ? $prepared['cip25'] : [];
+        $policyId = (string) ($prepared['policy_id'] ?? '');
+        $assetNameHex = (string) ($prepared['asset_name_hex'] ?? '');
+        $assetNameUtf8 = (string) ($prepared['asset_name_utf8'] ?? '');
+
+        if ($submit) {
+            $companionInventory = $inventoryState[$companionInventoryKey] ?? null;
+            if (!is_array($companionInventory) || (($companionInventory['ok'] ?? false) !== true)) {
+                $failedCount++;
+                $results[] = [
+                    'ok' => false,
+                    'token_id' => $tokenId,
+                    'order_id' => $orderId > 0 ? $orderId : null,
+                    'reason' => 'companion_inventory_check_failed',
+                    'treasury_env_key' => $envKey,
+                    'companion_unit' => $unit,
+                    'error' => (string) ($companionInventory['error'] ?? 'inventory check unavailable'),
+                ];
+                continue;
+            }
+            $nftInventory = $inventoryState[$nftInventoryKey] ?? null;
+            if (!is_array($nftInventory) || (($nftInventory['ok'] ?? false) !== true)) {
+                $failedCount++;
+                $results[] = [
+                    'ok' => false,
+                    'token_id' => $tokenId,
+                    'order_id' => $orderId > 0 ? $orderId : null,
+                    'reason' => 'nft_inventory_check_failed',
+                    'treasury_env_key' => $envKey,
+                    'nft_unit' => $nftUnit,
+                    'error' => (string) ($nftInventory['error'] ?? 'inventory check unavailable'),
+                ];
+                continue;
+            }
+            $companionAvailable = (int) ($companionInventory['available'] ?? 0);
+            $companionRequired = (int) ($companionInventory['required'] ?? 0);
+            if ($companionAvailable < 1) {
+                $skippedCount++;
+                $results[] = [
+                    'ok' => false,
+                    'token_id' => $tokenId,
+                    'order_id' => $orderId > 0 ? $orderId : null,
+                    'reason' => 'companion_inventory_insufficient',
+                    'treasury_env_key' => $envKey,
+                    'companion_unit' => $unit,
+                    'required_for_batch' => $companionRequired,
+                    'available' => (int) ($companionInventory['available'] ?? 0),
+                    'available_raw' => (string) ($companionInventory['raw_quantity'] ?? '0'),
+                ];
+                continue;
+            }
+            $nftAvailable = (int) ($nftInventory['available'] ?? 0);
+            $nftRequired = (int) ($nftInventory['required'] ?? 0);
+            if ($nftAvailable < 1) {
+                $skippedCount++;
+                $results[] = [
+                    'ok' => false,
+                    'token_id' => $tokenId,
+                    'order_id' => $orderId > 0 ? $orderId : null,
+                    'reason' => 'nft_inventory_insufficient',
+                    'treasury_env_key' => $envKey,
+                    'nft_unit' => $nftUnit,
+                    'required_for_batch' => $nftRequired,
+                    'available' => (int) ($nftInventory['available'] ?? 0),
+                    'available_raw' => (string) ($nftInventory['raw_quantity'] ?? '0'),
+                ];
+                continue;
+            }
+            $inventoryState[$companionInventoryKey]['available'] = $companionAvailable - 1;
+            $inventoryState[$nftInventoryKey]['available'] = $nftAvailable - 1;
+        }
 
         try {
-            $sidecarResponse = $sidecar->transferCompanionAsset([
+            $sidecarResponse = $sidecar->transferPairedAsset([
                 'treasury_env_key' => $envKey,
                 'recipient_addr' => $recipientAddr,
-                'unit' => $unit,
-                'quantity' => 1,
+                'nft_unit' => $nftUnit,
+                'companion_unit' => $unit,
+                'companion_quantity' => 1,
                 'submit' => $submit,
             ]);
 
@@ -443,7 +790,15 @@ try {
             $submitted = (bool) ($sidecarResponse['submitted'] ?? false);
 
             if ($submit && $submitted && preg_match('/^[0-9a-f]{64}$/i', $txHash) === 1) {
-                $cip25 = apply_companion_submission($cip25, $txHash, $unit);
+                $cip25 = apply_companion_submission(
+                    $cip25,
+                    $txHash,
+                    $unit,
+                    $policyId,
+                    $assetNameUtf8,
+                    $assetNameHex,
+                    $tokenId
+                );
                 $encoded = json_encode($cip25, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                 if ($encoded !== false) {
                     $updateTokenStmt->execute([$encoded, $tokenRowId]);
@@ -458,17 +813,26 @@ try {
                 'order_status' => $orderStatus !== '' ? $orderStatus : null,
                 'treasury_env_key' => $envKey,
                 'recipient_addr' => $recipientAddr,
-                'recipient_source' => $recipientSource !== '' ? $recipientSource : null,
-                'unit' => $unit,
+                'recipient_source' => $recipientSource,
+                'nft_unit' => $nftUnit,
+                'companion_unit' => $unit,
                 'sidecar' => $sidecarResponse,
             ];
         } catch (Throwable $e) {
+            if ($submit && isset($inventoryState[$companionInventoryKey]) && is_array($inventoryState[$companionInventoryKey])) {
+                $inventoryState[$companionInventoryKey]['available'] = (int) (($inventoryState[$companionInventoryKey]['available'] ?? 0) + 1);
+            }
+            if ($submit && isset($inventoryState[$nftInventoryKey]) && is_array($inventoryState[$nftInventoryKey])) {
+                $inventoryState[$nftInventoryKey]['available'] = (int) (($inventoryState[$nftInventoryKey]['available'] ?? 0) + 1);
+            }
             $failedCount++;
             $results[] = [
                 'ok' => false,
                 'token_id' => $tokenId,
                 'order_id' => $orderId > 0 ? $orderId : null,
                 'reason' => 'sidecar_transfer_failed',
+                'nft_unit' => $nftUnit,
+                'companion_unit' => $unit,
                 'error' => $e->getMessage(),
             ];
         }

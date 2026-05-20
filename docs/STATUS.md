@@ -1,7 +1,6 @@
 # RareFolio Marketplace - Project Status
-**Last updated:** 2026-05-19
-**Branch:** `docs/non-burn-cutover-final-state-20260518` (tracking `origin/docs/non-burn-cutover-final-state-20260518`)
-**Head commit:** `34e8005`
+**Last updated:** 2026-05-20
+**Branch:** `restore/stash-pre-branch-cleanup-20260520`
 ---
 ## Current execution state
 - **Phase E.2 complete (preprod minting):** all 8 Founders tokens minted and confirmed on preprod (`docs/FOUNDERS_MINT_LOG.md`)
@@ -12,6 +11,11 @@
   - `db/migrations/020_non_burn_collection_policy_cutover.sql` applied at `2026-05-18 10:10:27`
   - `db/migrations/021_non_burn_cid_cutover.sql` applied at `2026-05-18 10:12:09`
   - `qd_collections.slug=silverbar-01-founders-v2` resolves to `policy_env_key=FOUNDERS_V2`
+- **Mint prepare policy-key resolution fix applied (2026-05-20):**
+  - `admin/mint-action.php` no longer forwards `qd_mint_queue.policy_id` to sidecar `/mint/prepare`
+  - policy script resolution is now forced through `qd_collections.policy_env_key` to prevent stale pre-cutover policy_id override
+- **Migration plan verification rerun complete (2026-05-20):**
+  - production `php db/migrate.php --mode=plan` reports `Pending 0 migration(s)` including `022_align_founders_v2_policy_v721_keys.sql`
 - **Founders V2 sidecar policy readiness remains healthy:**
   - `GET /mint/policy-id?env_key=FOUNDERS_V2` returns `200`
   - policy id: `82ae9440500e297e49144a13832861de3e84e526eee0eb70f4d48af7`
@@ -73,13 +77,11 @@
 - This status file is updated after production verification closure and Phase F readiness checks
 ---
 ## Current blockers (Phase G gate)
-1. Execute final launch smoke sequence (`sidecar/test-smoke.mjs`, `/api/v1/health`, admin auth, token/order path smoke) and archive outputs.
-2. Complete launch-day sequencing decisions (DNS cutover timing and announcement window).
+1. Execute launch announcement window.
 ---
 ## Next execution sequence
-1. Run final smoke checks (`sidecar/test-smoke.mjs`, `/api/v1/health`, admin login, token/order smoke path).
-2. Capture and store Phase G pre-launch evidence bundle.
-3. Proceed to launch-day steps in Phase G (DNS, propagation, announcement) once smoke checks are clean.
+1. Publish launch announcement.
+2. Start post-launch watch and operational monitoring.
 ---
 ## What is shipped (code/platform)
 - Phase 1 scaffold and admin foundation

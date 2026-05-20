@@ -51,6 +51,16 @@ final class Client
     {
         return $this->post('/companion/transfer', $payload);
     }
+    /**
+     * Transfer NFT + companion together in a single treasury transaction.
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public function transferPairedAsset(array $payload): array
+    {
+        return $this->post('/companion/transfer-paired', $payload);
+    }
 
     /**
      * Read treasury wallet ADA balance for a companion env key.
@@ -60,6 +70,18 @@ final class Client
     public function getCompanionTreasuryBalance(string $envKey): array
     {
         return $this->get('/companion/treasury/' . rawurlencode(strtoupper($envKey)) . '/balance');
+    }
+
+    /**
+     * Read companion unit quantity available in a treasury wallet.
+     *
+     * @return array<string,mixed>
+     */
+    public function getCompanionTreasuryUnitBalance(string $envKey, string $unit): array
+    {
+        $env = rawurlencode(strtoupper($envKey));
+        $normalizedUnit = strtolower(trim($unit));
+        return $this->get('/companion/treasury/' . $env . '/unit/' . rawurlencode($normalizedUnit) . '/balance');
     }
 
     /**

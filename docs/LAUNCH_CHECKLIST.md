@@ -22,6 +22,7 @@
   - API health: `GET https://market.rarefolio.io/api/v1/health` returned `ok=true` and `db=ok`
   - admin checks: `GET https://market.rarefolio.io/admin/` returned `302` to login, `GET https://market.rarefolio.io/admin/login.php` returned `200`, `GET https://rarefolio.io/admin/` returned `401` Basic Auth challenge
   - token and order smoke: `php tests/test_lazy_mint_e2e.php` against production base returned `6 passed, 0 failed, 0 skipped`
+- [x] DNS check (2026-05-20): `rarefolio.io` and `market.rarefolio.io` both resolve to `50.6.202.60`
 
 ---
 
@@ -150,8 +151,8 @@ Gate passed on 2026-04-24. See `docs/FOUNDERS_MINT_LOG.md` for tx hashes and ver
 
 ## PHASE G — Launch Day
 
-- [ ] Point DNS to the marketplace server
-- [ ] DNS propagation check (`dig +short rarefolio.io`)
+- [x] Point DNS to the marketplace server
+- [x] DNS propagation check (`dig +short rarefolio.io`)
 - [x] Final smoke test: `node sidecar/test-smoke.mjs`
 - [x] Final API test: `curl https://market.rarefolio.io/api/v1/health`
 - [x] Final admin login check: `https://rarefolio.io/admin/`

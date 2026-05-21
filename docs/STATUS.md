@@ -14,6 +14,15 @@
     - `PUBLIC_SITE_WEBHOOK_SECRET` fallback when `DOWNLOAD_VERIFY_ALLOW_WEBHOOK_FALLBACK=true`
   - ownership verifier now also accepts `X-Download-Verify-Secret` in addition to existing auth headers.
   - env template updated in `.env.example` for rotation-safe verifier auth settings.
+- **Claim verifier production closure evidence captured (2026-05-20):**
+  - final live smoke for `QDCERT-E101837-0000705` / `qd-silver-0000705` completed with real wallet signature:
+    - challenge `POST https://rarefolio.io/api/download/challenge.php` -> `200`
+    - claim `POST https://rarefolio.io/api/download/claim.php` -> `200`
+    - claim response returned ticketed `download_url`
+  - ownership verifier log audit (`/etc/apache2/logs/domlogs/rarefolio/market.rarefolio.io-ssl_log`) confirms:
+    - historical mismatch-era `401` at `18:35:07 -0400`
+    - post-fix calls at `18:38:04 -0400` and `18:51:06 -0400` returned `200`
+    - no additional post-fix `unauthorized` ownership-verify entries observed
 - **Non-burn policy and CID cutover complete in production (2026-05-18):**
   - `db/migrations/020_non_burn_collection_policy_cutover.sql` applied at `2026-05-18 10:10:27`
   - `db/migrations/021_non_burn_cid_cutover.sql` applied at `2026-05-18 10:12:09`
@@ -91,10 +100,7 @@
     - sidecar process recycled
     - `GET /sweep/balance/FOUNDERS_V2` now returns wallet address and balance payload
 ## Local repository state
-- Working tree currently includes uncommitted claim verifier auth hardening updates:
-  - `api/private/ownership-verify.php`
-  - `.env.example`
-- This status file was refreshed after claim verifier mismatch closure work.
+- Working tree includes launch-tracking documentation refresh updates for final claim-verifier closure evidence.
 ---
 ## Current blockers (Phase G gate)
 1. Execute launch announcement window.

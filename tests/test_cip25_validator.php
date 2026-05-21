@@ -151,6 +151,21 @@ test('description: >64-char single line produces a warning', function () use ($g
     expect($found, 'expected a warning about >64 char line');
 });
 
+test('description: >64-char single line is rejected in strict mode', function () use ($goodAsset) {
+    $a = $goodAsset;
+    $a['description'] = str_repeat('x', 80);
+    $r = Validator::validate($a, true);
+    expect($r['valid'] === false, 'strict mode should fail for >64-byte metadata string');
+    $found = false;
+    foreach ($r['errors'] as $e) {
+        if (str_contains($e, '64-byte Cardano metadata limit')) {
+            $found = true;
+            break;
+        }
+    }
+    expect($found, 'expected strict-mode error about 64-byte metadata limit');
+});
+
 // ---- wrap() ----
 test('wrap: produces correct 721 envelope', function () use ($goodAsset) {
     $w = Validator::wrap('deadbeef' . str_repeat('0', 48), 'RareFolioGenesis0001', $goodAsset);

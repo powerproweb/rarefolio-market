@@ -168,6 +168,7 @@ Gate passed on 2026-04-24. See `docs/FOUNDERS_MINT_LOG.md` for tx hashes and ver
 - [x] Final smoke test: `node sidecar/test-smoke.mjs`
 - [x] Final API test: `curl https://market.rarefolio.io/api/v1/health`
 - [x] Final admin login check: `https://rarefolio.io/admin/`
+- [ ] Run Founders drift guard: `php scripts/check-founders-launch-drift.php --base=https://market.rarefolio.io`
 - [ ] Announce
 
 ---

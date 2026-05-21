@@ -7,7 +7,7 @@
  *   Required:
  *     rarefolio_token_id  — e.g. qd-silver-0000705
  *     collection_slug     — e.g. silverbar-01-founders
- *     asset_name_utf8     — on-chain name, max 64 chars
+ *     asset_name_utf8     — on-chain name, max 64 bytes
  *     title               — display name
  *     artist              — creator
  *     edition             — e.g. 1/8
@@ -16,7 +16,7 @@
  *   Optional:
  *     policy_id           — 56-char hex (blank until policy is derived)
  *     character_name      — long character name / subtitle
- *     description         — any length; auto-split at 64 bytes
+ *     description         — each metadata string value must be <= 64 bytes
  *     mediaType           — default image/jpeg
  *     website             — https://...
  *
@@ -40,8 +40,10 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/bootstrap.php';
+require_once __DIR__ . '/../src/Cip25/ImportRowParser.php';
 
 use RareFolio\Cip25\Validator;
+use RareFolio\Cip25\ImportRowParser;
 use RareFolio\Auth;
 
 // -----------------------------------------------------------------------
@@ -61,7 +63,7 @@ if (isset($_GET['download_template'])) {
     $example = [
         'qd-silver-0000705','silverbar-01-founders','','qd-silver-0000705',
         'Founders #1','The Archivist — Keeper of the First Ledger','1/8','RareFolio',
-        'Keeper of the First Ledger. Member of the Rarefolio Founders collection anchored to Silver Bar I (Serial E101837).',
+        'Keeper of the First Ledger. Founder token for Block 88.',
         'ipfs://REPLACE_WITH_CID','image/jpeg','https://rarefolio.io',
         'E101837','88','Archivist',
         'Founder','Fine silver .999','100',
@@ -73,7 +75,7 @@ if (isset($_GET['download_template'])) {
     // Instructions row (starts with #)
     fputcsv($out, array_map(fn($c) => match(true) {
         $c === 'rarefolio_token_id' => '# Required. Unique token ID.',
-        $c === 'asset_name_utf8'    => '# Required. On-chain name (max 64 chars).',
+        $c === 'asset_name_utf8'    => '# Required. On-chain name (max 64 bytes).',
         $c === 'image_ipfs'         => '# Required. Must start with ipfs://',
         str_starts_with($c, 'attr_') => '# Optional. Becomes attributes.' . substr($c, 5),
         str_starts_with($c, 'meta_') => '# Optional. Becomes top-level metadata field.',
@@ -95,7 +97,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirmed_rows'])) {
     foreach ($rows as $row) {
         try {
             $tid  = (string)($row['rarefolio_token_id'] ?? '');
-            $cip25Wrapped = Validator::wrap($row['policy_id'] ?: 'PENDING', $row['asset_name_utf8'], $row['asset']);
+            $validation = ImportRowParser::validateConfirmedRow($row);
+            if ($validation['valid'] !== true) {
+                throw new RuntimeException('Metadata validation failed: ' . implode(' | ', $validation['errors']));
+            }
+            $asset = $row['asset'] ?? null;
+            if (!is_array($asset)) {
+                throw new RuntimeException('Invalid row payload: missing metadata asset object.');
+            }
+            $cip25Wrapped = Validator::wrap($row['policy_id'] ?: 'PENDING', $row['asset_name_utf8'], $asset);
             $pdo->prepare(
                 "INSERT INTO qd_mint_queue
                     (rarefolio_token_id, collection_slug, policy_id, asset_name_hex,
@@ -133,40 +143,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file']) && $impo
     if ($file['error'] !== UPLOAD_ERR_OK) {
         $parseError = 'Upload error code ' . $file['error'];
     } else {
-        $handle = fopen($file['tmp_name'], 'r');
-        if (!$handle) {
-            $parseError = 'Could not open uploaded file.';
-        } else {
-            $headers = null;
-            $preview = [];
-            $lineNum = 0;
-
-            while (($row = fgetcsv($handle)) !== false) {
-                $lineNum++;
-                // Skip comment rows (first cell starts with #)
-                if (str_starts_with(trim($row[0] ?? ''), '#')) continue;
-                // First non-comment row = headers
-                if ($headers === null) {
-                    $headers = array_map('trim', $row);
-                    continue;
-                }
-                if (count($row) < count($headers)) {
-                    $row = array_pad($row, count($headers), '');
-                }
-                $data = array_combine($headers, array_map('trim', $row));
-                if (!$data) continue;
-
-                // Skip fully blank rows
-                if (implode('', array_values($data)) === '') continue;
-
-                $preview[] = parseImportRow($data, $lineNum);
-            }
-            fclose($handle);
-
-            if ($headers === null) {
-                $parseError = 'CSV appears to have no header row.';
-                $preview = null;
-            }
+        $parsed = ImportRowParser::parseUploadedCsv($file['tmp_name']);
+        $parseError = $parsed['parseError'];
+        $preview = $parsed['preview'];
+        if ($parseError !== null) {
+            $preview = null;
         }
     }
 }
@@ -188,86 +169,7 @@ function extractCidImport(string $ipfsUri): ?string
  */
 function parseImportRow(array $data, int $line): array
 {
-    $tid        = $data['rarefolio_token_id'] ?? '';
-    $collSlug   = $data['collection_slug']    ?? '';
-    $policyId   = $data['policy_id']          ?? '';
-    $assetName  = $data['asset_name_utf8']    ?? '';
-    $title      = $data['title']              ?? '';
-    $charName   = $data['character_name']     ?? '';
-    $edition    = $data['edition']            ?? '';
-    $artist     = $data['artist']             ?? '';
-    $description = $data['description']       ?? '';
-    $imageIpfs  = $data['image_ipfs']         ?? '';
-    $mediaType  = $data['mediaType']          ?: 'image/jpeg';
-    $website    = $data['website']            ?? '';
-
-    // Build attributes from attr_* columns
-    $attributes = [];
-    foreach ($data as $col => $val) {
-        if (str_starts_with($col, 'attr_') && $val !== '') {
-            $attributes[substr($col, 5)] = $val;
-        }
-    }
-
-    // Build top-level custom metadata fields from meta_* columns
-    $customMeta = [];
-    foreach ($data as $col => $val) {
-        if (str_starts_with($col, 'meta_') && $val !== '') {
-            $customMeta[substr($col, 5)] = $val;
-        }
-    }
-
-    // Assemble the CIP-25 asset object
-    $asset = array_filter([
-        'name'               => $title,
-        'image'              => $imageIpfs,
-        'mediaType'          => $mediaType,
-        'description'        => $description !== '' ? $description : null,
-        'artist'             => $artist,
-        'edition'            => $edition,
-        'attributes'         => !empty($attributes) ? $attributes : null,
-        'rarefolio_token_id' => $tid,
-        'collection'         => $collSlug,
-        'website'            => $website !== '' ? $website : null,
-    ] + $customMeta, static fn($v) => $v !== null && $v !== '');
-
-    // Sanitise (auto-split long strings)
-    $asset = Validator::sanitize($asset);
-
-    // Validate
-    $result   = Validator::validate($asset);
-    $errors   = $result['errors'];
-    $warnings = $result['warnings'];
-
-    // Extra checks
-    if ($tid === '')       $errors[] = 'rarefolio_token_id is required.';
-    if ($assetName === '') $errors[] = 'asset_name_utf8 is required.';
-    if ($collSlug === '')  $errors[] = 'collection_slug is required.';
-    if ($policyId !== '' && !preg_match('/^[0-9a-f]{56}$/i', $policyId)) {
-        $errors[] = 'policy_id must be 56 hex chars (or left blank).';
-    }
-
-    $status = match(true) {
-        !empty($errors)   => 'error',
-        !empty($warnings) => 'warning',
-        default           => 'ok',
-    };
-
-    return [
-        'line'            => $line,
-        'rarefolio_token_id' => $tid,
-        'collection_slug' => $collSlug,
-        'policy_id'       => $policyId,
-        'asset_name_utf8' => $assetName,
-        'title'           => $title,
-        'character_name'  => $charName,
-        'edition'         => $edition,
-        'image_ipfs'      => $imageIpfs,
-        'asset'           => $asset,
-        'errors'          => $errors,
-        'warnings'        => $warnings,
-        'status'          => $status,
-    ];
+    return ImportRowParser::parsePreviewRow($data, $line);
 }
 
 $pageTitle = 'Bulk mint import — RareFolio admin';
@@ -309,14 +211,14 @@ require __DIR__ . '/includes/header.php';
         <tbody>
         <tr><td class="rf-mono">rarefolio_token_id</td><td>Yes</td><td>Unique ID, e.g. <code>qd-silver-0000705</code></td></tr>
         <tr><td class="rf-mono">collection_slug</td><td>Yes</td><td>Matches <code>qd_tokens.collection_slug</code></td></tr>
-        <tr><td class="rf-mono">asset_name_utf8</td><td>Yes</td><td>On-chain name, max 64 chars</td></tr>
+        <tr><td class="rf-mono">asset_name_utf8</td><td>Yes</td><td>On-chain name, max 64 bytes</td></tr>
         <tr><td class="rf-mono">title</td><td>Yes</td><td>Display name</td></tr>
         <tr><td class="rf-mono">artist</td><td>Yes</td><td>Creator name</td></tr>
         <tr><td class="rf-mono">edition</td><td>Yes</td><td>e.g. <code>1/8</code></td></tr>
         <tr><td class="rf-mono">image_ipfs</td><td>Yes</td><td>Must start with <code>ipfs://</code></td></tr>
         <tr><td class="rf-mono">policy_id</td><td>No</td><td>56 hex chars; leave blank until derived</td></tr>
         <tr><td class="rf-mono">character_name</td><td>No</td><td>Subtitle / archetype label</td></tr>
-        <tr><td class="rf-mono">description</td><td>No</td><td>Any length — auto-split at 64 bytes</td></tr>
+        <tr><td class="rf-mono">description</td><td>No</td><td>Each metadata string must be 64 bytes or less</td></tr>
         <tr><td class="rf-mono">mediaType</td><td>No</td><td>Default: <code>image/jpeg</code></td></tr>
         <tr><td class="rf-mono">website</td><td>No</td><td>Full URL</td></tr>
         <tr><td class="rf-mono">attr_*</td><td>No</td><td>Any <code>attr_foo</code> → <code>attributes.foo</code>. Add as many as you like.</td></tr>

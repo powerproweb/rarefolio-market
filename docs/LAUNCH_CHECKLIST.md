@@ -26,6 +26,15 @@
 - [x] Claim verifier auth mismatch hardening complete (2026-05-20):
   - `api/private/ownership-verify.php` now accepts rotated secret candidates and `X-Download-Verify-Secret`
   - Rarefolio claim caller now retries configured current plus previous verifier secrets before surfacing auth failure
+- [x] Production claim smoke closure complete (2026-05-20):
+  - challenge `POST https://rarefolio.io/api/download/challenge.php` returned `200`
+  - claim `POST https://rarefolio.io/api/download/claim.php` returned `200` with ticketed `download_url`
+  - validated with real wallet signature for `QDCERT-E101837-0000705` / `qd-silver-0000705`
+- [x] Ownership-verify unauthorized audit complete (2026-05-20):
+  - log file: `/etc/apache2/logs/domlogs/rarefolio/market.rarefolio.io-ssl_log`
+  - observed one pre-fix `401` at `18:35:07 -0400`
+  - post-fix ownership-verify requests at `18:38:04 -0400` and `18:51:06 -0400` returned `200`
+  - no new post-fix unauthorized entries observed for `/api/private/ownership-verify.php`
 
 ---
 
@@ -159,6 +168,7 @@ Gate passed on 2026-04-24. See `docs/FOUNDERS_MINT_LOG.md` for tx hashes and ver
 - [x] Final smoke test: `node sidecar/test-smoke.mjs`
 - [x] Final API test: `curl https://market.rarefolio.io/api/v1/health`
 - [x] Final admin login check: `https://rarefolio.io/admin/`
+- [ ] Run Founders drift guard: `php scripts/check-founders-launch-drift.php --base=https://market.rarefolio.io`
 - [ ] Announce
 
 ---

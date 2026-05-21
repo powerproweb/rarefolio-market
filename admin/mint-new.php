@@ -130,7 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'website'            => $form['website'] !== '' ? $form['website'] : null,
     ], static fn($v) => $v !== null && $v !== '');
 
-    $result = Validator::validate($asset);
+    $result = Validator::validate($asset, true);
     $errors   = array_merge($errors, $result['errors']);
     $warnings = $result['warnings'];
 

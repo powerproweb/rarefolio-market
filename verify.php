@@ -196,6 +196,13 @@ step('CIP-25 Validator unit tests pass', function () use ($root) {
         throw new RuntimeException("validator tests failed:\n" . $output);
     }
 });
+step('Mint import strict validation tests pass', function () use ($root) {
+    $proc = runProcess([PHP_BINARY, $root . '/tests/test_mint_import_strict.php']);
+    if (($proc['exit_code'] ?? 1) !== 0) {
+        $output = trim(((string) ($proc['stdout'] ?? '')) . "\n" . ((string) ($proc['stderr'] ?? '')));
+        throw new RuntimeException("mint import strict tests failed:\n" . $output);
+    }
+});
 
 // 4) sidecar files exist
 step('Sidecar TypeScript skeleton exists', function () use ($root) {

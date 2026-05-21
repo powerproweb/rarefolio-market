@@ -160,12 +160,17 @@ final class Validator
     // =========================================================================
 
     /**
-     * Validate asset metadata (call sanitize() first to pre-clean long strings).
+     * Validate asset metadata.
+     *
+     * strictStringLength=false:
+     *   long strings (>64 bytes) are warnings, and callers can sanitize() before save.
+     * strictStringLength=true:
+     *   long strings are treated as hard errors.
      *
      * @param array<string,mixed> $asset  The raw asset metadata (inner object).
      * @return array{valid:bool,errors:array<int,string>,warnings:array<int,string>}
      */
-    public static function validate(array $asset): array
+    public static function validate(array $asset, bool $strictStringLength = false): array
     {
         $errors = [];
         $warnings = [];
@@ -235,9 +240,14 @@ final class Validator
         //    If sanitize() was called first this check is purely for confirmation.
         $longFields = self::findLongStrings($asset);
         if (!empty($longFields)) {
-            $warnings[] = 'The following fields have string values > 64 bytes (about 64 chars for ASCII text) and have NOT been '
-                . 'auto-split yet. Call Validator::sanitize() before saving: '
-                . implode(', ', $longFields);
+            if ($strictStringLength) {
+                $errors[] = 'The following fields exceed the 64-byte Cardano metadata limit: '
+                    . implode(', ', $longFields);
+            } else {
+                $warnings[] = 'The following fields have string values > 64 bytes (about 64 chars for ASCII text) and have NOT been '
+                    . 'auto-split yet. Call Validator::sanitize() before saving: '
+                    . implode(', ', $longFields);
+            }
         }
         // 8. attributes must be a key/value object
         if (isset($asset['attributes'])) {

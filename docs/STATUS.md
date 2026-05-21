@@ -1,6 +1,6 @@
 # RareFolio Marketplace - Project Status
-**Last updated:** 2026-05-20
-**Branch:** `restore/stash-pre-branch-cleanup-20260520`
+**Last updated:** 2026-05-21
+**Branch:** `main`
 ---
 ## Current execution state
 - **Phase E.2 complete (preprod minting):** all 8 Founders tokens minted and confirmed on preprod (`docs/FOUNDERS_MINT_LOG.md`)
@@ -23,6 +23,10 @@
     - historical mismatch-era `401` at `18:35:07 -0400`
     - post-fix calls at `18:38:04 -0400` and `18:51:06 -0400` returned `200`
     - no additional post-fix `unauthorized` ownership-verify entries observed
+- **Founders pre-announcement drift guard merged to `main` (2026-05-21):**
+  - added `scripts/check-founders-launch-drift.php`
+  - guard verifies Founders `qd-silver-0000705` through `qd-silver-0000712` stay in launch baseline (`minted`, `listed_fixed`, `platform`) and supports optional listings scan mode
+  - Phase G launch checklist now includes this guard step before announcement
 - **Non-burn policy and CID cutover complete in production (2026-05-18):**
   - `db/migrations/020_non_burn_collection_policy_cutover.sql` applied at `2026-05-18 10:10:27`
   - `db/migrations/021_non_burn_cid_cutover.sql` applied at `2026-05-18 10:12:09`
@@ -100,7 +104,7 @@
     - sidecar process recycled
     - `GET /sweep/balance/FOUNDERS_V2` now returns wallet address and balance payload
 ## Local repository state
-- Working tree includes launch-tracking documentation refresh updates for final claim-verifier closure evidence.
+- Local `main` is synced to `origin/main` and working tree is clean.
 ---
 ## Current blockers (Phase G gate)
 1. Execute launch announcement window.

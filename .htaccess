@@ -17,4 +17,4 @@
 </IfModule>
 # php -- END cPanel-generated handler, do not edit
 
-DirectoryIndex buy.php index.php index.html
+DirectoryIndex index.php buy.php index.html

@@ -1,5 +1,5 @@
 # RareFolio Marketplace - Project Status
-**Last updated:** 2026-05-21
+**Last updated:** 2026-05-30
 **Branch:** `main`
 ---
 ## Current execution state
@@ -25,8 +25,28 @@
     - no additional post-fix `unauthorized` ownership-verify entries observed
 - **Founders pre-announcement drift guard merged to `main` (2026-05-21):**
   - added `scripts/check-founders-launch-drift.php`
-  - guard verifies Founders `qd-silver-0000705` through `qd-silver-0000712` stay in launch baseline (`minted`, `listed_fixed`, `platform`) and supports optional listings scan mode
+  - guard verifies Founders `qd-silver-0000705` through `qd-silver-0000712` stay in launch baseline (`minted`, `listed_fixed`, `platform`)
+  - guard now enforces expected `bar_serial` and checks that `chain.mint_tx_hash` is populated
+  - listings scan is now part of the default gate path
   - Phase G launch checklist now includes this guard step before announcement
+- **Launch pipeline hardening implementation in progress (2026-05-30):**
+  - Stage A, Founders stabilization code is in place:
+    - API fallback for Founders `bar_serial` contract in `api/v1/routes/tokens_show.php`
+    - drift guard expected `bar_serial` contract checks in `scripts/check-founders-launch-drift.php`
+    - repair migration in `db/migrations/023_fix_founders_bar_serial_contract.sql`
+  - Stage B, import fail-closed contract checks are in place in:
+    - `src/Cip25/ImportRowParser.php`
+    - `admin/mint-import.php`
+    - `tests/test_mint_import_strict.php`
+    - `tests/test_collection_contract_static.php`
+  - Stage C, mint policy parity and webhook auth hardening are in place in:
+    - `admin/mint-action.php`
+    - `../01_rarefolio.io/api/webhook/_hmac.php`
+    - `../01_rarefolio.io/api/webhook/.env.example`
+  - production token-scoped data remediation executed for `qd-silver-0000705`:
+    - backup/evidence path: `/home/rarefolio/rf_storage/ops_backups/founders_bar_serial_fix_20260530_025106`
+    - top-level and nested `bar_serial` contract fields restored to `E101837` in `qd_tokens` and `qd_mint_queue`
+  - live drift-guard rerun (`2026-05-30T02:52:55Z`) passed with no drifts and no errors for all 8 Founders tokens
 - **Non-burn policy and CID cutover complete in production (2026-05-18):**
   - `db/migrations/020_non_burn_collection_policy_cutover.sql` applied at `2026-05-18 10:10:27`
   - `db/migrations/021_non_burn_cid_cutover.sql` applied at `2026-05-18 10:12:09`
@@ -104,14 +124,18 @@
     - sidecar process recycled
     - `GET /sweep/balance/FOUNDERS_V2` now returns wallet address and balance payload
 ## Local repository state
-- Local `main` is synced to `origin/main` and working tree is clean.
+- Working tree contains active hardening changes plus documentation updates pending commit/deploy workflow.
 ---
 ## Current blockers (Phase G gate)
-1. Execute launch announcement window.
+1. Complete the release evidence bundle:
+   - fresh live claim-download pass (challenge + signed claim success path)
+2. Confirm release evidence bundle signoff and proceed to announcement window.
 ---
 ## Next execution sequence
-1. Publish launch announcement.
-2. Start post-launch watch and operational monitoring.
+1. Run one fresh signed claim-download pass to complete release-bundle recency evidence.
+2. Mark release evidence bundle green.
+3. Publish launch announcement.
+4. Start post-launch watch and operational monitoring.
 ---
 ## What is shipped (code/platform)
 - Phase 1 scaffold and admin foundation

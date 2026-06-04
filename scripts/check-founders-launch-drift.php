@@ -10,8 +10,9 @@ declare(strict_types=1);
  * - status.primary_sale = minted
  * - status.listing = listed_fixed
  * - status.custody = platform
+ * - bar_serial matches expected value
  *
- * Optional listings scan checks visibility by paging /api/v1/listings?format=fixed
+ * Listings scan checks visibility by paging /api/v1/listings?format=fixed
  * and confirming each Founders token appears in active fixed listings.
  *
  * Usage:
@@ -20,7 +21,8 @@ declare(strict_types=1);
  *   php scripts/check-founders-launch-drift.php --insecure
  *   php scripts/check-founders-launch-drift.php --json
  *   php scripts/check-founders-launch-drift.php --max-pages=30
- *   php scripts/check-founders-launch-drift.php --with-listings-scan
+ *   php scripts/check-founders-launch-drift.php --expected-bar-serial=E101837
+ *   php scripts/check-founders-launch-drift.php --skip-listings-scan
  *
  * Exit codes:
  *   0 = guard passed
@@ -42,12 +44,14 @@ const FOUNDERS_TOKENS = [
 const EXPECTED_PRIMARY = 'minted';
 const EXPECTED_LISTING = 'listed_fixed';
 const EXPECTED_CUSTODY = 'platform';
+const EXPECTED_BAR_SERIAL = 'E101837';
 
 $base = 'https://market.rarefolio.io';
 $insecureTls = false;
 $jsonOut = false;
 $maxPages = 20;
-$skipListingsScan = true;
+$skipListingsScan = false;
+$expectedBarSerial = EXPECTED_BAR_SERIAL;
 
 foreach (array_slice($argv, 1) as $arg) {
     if (preg_match('/^--base=(.+)$/', $arg, $m) === 1) {
@@ -64,6 +68,19 @@ foreach (array_slice($argv, 1) as $arg) {
     }
     if (preg_match('/^--max-pages=(\d+)$/', $arg, $m) === 1) {
         $maxPages = max(1, min(200, (int) $m[1]));
+        continue;
+    }
+    if (preg_match('/^--expected-bar-serial=(.+)$/', $arg, $m) === 1) {
+        $candidate = strtoupper(trim((string) $m[1]));
+        if ($candidate === '' || preg_match('/^[A-Z][0-9]{5,12}$/', $candidate) !== 1) {
+            fwrite(STDERR, "Invalid --expected-bar-serial value: {$candidate}\n");
+            exit(2);
+        }
+        $expectedBarSerial = $candidate;
+        continue;
+    }
+    if ($arg === '--skip-listings-scan') {
+        $skipListingsScan = true;
         continue;
     }
     if ($arg === '--with-listings-scan') {
@@ -112,13 +129,14 @@ foreach (FOUNDERS_TOKENS as $tokenId) {
     $actualPrimary = normalizeLowerString($status['primary_sale'] ?? null);
     $actualListing = normalizeLowerString($status['listing'] ?? null);
     $actualCustody = normalizeLowerString($status['custody'] ?? null);
+    $actualBarSerial = strtoupper(trim((string) ($data['bar_serial'] ?? '')));
     $mintTxHash = trim((string) (($data['chain']['mint_tx_hash'] ?? '') ?: ''));
 
     $tokenChecks[$tokenId] = [
         'primary_sale' => $actualPrimary,
         'listing' => $actualListing,
         'custody' => $actualCustody,
-        'bar_serial' => trim((string) ($data['bar_serial'] ?? '')),
+        'bar_serial' => $actualBarSerial,
         'mint_tx_hash_present' => ($mintTxHash !== ''),
     ];
 
@@ -130,6 +148,11 @@ foreach (FOUNDERS_TOKENS as $tokenId) {
     }
     if ($actualCustody !== EXPECTED_CUSTODY) {
         $drifts[] = "{$tokenId}: custody expected '" . EXPECTED_CUSTODY . "', got '" . ($actualCustody !== '' ? $actualCustody : 'null') . "'";
+    }
+    if ($actualBarSerial === '') {
+        $drifts[] = "{$tokenId}: bar_serial is empty";
+    } elseif ($expectedBarSerial !== '' && $actualBarSerial !== $expectedBarSerial) {
+        $drifts[] = "{$tokenId}: bar_serial expected '" . $expectedBarSerial . "', got '" . $actualBarSerial . "'";
     }
     if ($mintTxHash === '') {
         $drifts[] = "{$tokenId}: chain.mint_tx_hash is empty";
@@ -220,6 +243,7 @@ $result = [
         'primary_sale' => EXPECTED_PRIMARY,
         'listing' => EXPECTED_LISTING,
         'custody' => EXPECTED_CUSTODY,
+        'bar_serial' => $expectedBarSerial,
     ],
     'tokens' => $tokenChecks,
     'listings_scan' => $listingScan,
@@ -425,5 +449,5 @@ function normalizeLowerString(mixed $value): string
 
 function printUsage(): void
 {
-    echo "Usage: php scripts/check-founders-launch-drift.php [--base=<url>] [--insecure] [--json] [--max-pages=<n>] [--with-listings-scan]\n";
+    echo "Usage: php scripts/check-founders-launch-drift.php [--base=<url>] [--insecure] [--json] [--max-pages=<n>] [--expected-bar-serial=<serial>] [--skip-listings-scan]\n";
 }

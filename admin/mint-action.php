@@ -155,6 +155,37 @@ function callSidecarPrepare(PDO $pdo, array $row, ?string $recipient): array
     $sidecar = new SidecarClient();
     $cip25 = json_decode($row['cip25_json'], true) ?: [];
     $collectionConfig = resolveCollectionMintConfig($pdo, (string) ($row['collection_slug'] ?? ''));
+    $policyInfo = $sidecar->getPolicyInfoForKey(
+        $collectionConfig['policy_env_key'],
+        $collectionConfig['lock_slot']
+    );
+    $derivedPolicyId = strtolower(trim((string) ($policyInfo['policy_id'] ?? '')));
+    if ($derivedPolicyId === '' || !preg_match('/^[0-9a-f]{56}$/', $derivedPolicyId)) {
+        throw new RuntimeException(
+            "Sidecar did not return a valid policy_id for env key '{$collectionConfig['policy_env_key']}'."
+        );
+    }
+
+    $collectionPolicyId = strtolower(trim((string) ($collectionConfig['policy_id'] ?? '')));
+    if ($collectionPolicyId !== '' && $collectionPolicyId !== $derivedPolicyId) {
+        throw new RuntimeException(
+            "Collection policy mismatch for '{$row['collection_slug']}'. "
+            . "qd_collections.policy_id='{$collectionPolicyId}' but sidecar derived '{$derivedPolicyId}'."
+        );
+    }
+
+    $queuePolicyId = strtolower(trim((string) ($row['policy_id'] ?? '')));
+    if ($queuePolicyId !== '' && $queuePolicyId !== $derivedPolicyId) {
+        throw new RuntimeException(
+            "Mint queue policy mismatch for '{$row['rarefolio_token_id']}'. "
+            . "qd_mint_queue.policy_id='{$queuePolicyId}' but sidecar derived '{$derivedPolicyId}'."
+        );
+    }
+    if ($queuePolicyId === '' && $collectionPolicyId !== '') {
+        $pdo->prepare(
+            'UPDATE qd_mint_queue SET policy_id = ?, updated_at = NOW() WHERE id = ? LIMIT 1'
+        )->execute([$collectionPolicyId, (int) ($row['id'] ?? 0)]);
+    }
     $payload = [
         'rarefolio_token_id' => $row['rarefolio_token_id'],
         'collection_slug'    => $row['collection_slug'],
@@ -172,7 +203,7 @@ function callSidecarPrepare(PDO $pdo, array $row, ?string $recipient): array
 /**
  * Resolve collection-level mint policy config for sidecar mint preparation.
  *
- * @return array{policy_env_key:string,lock_slot:int|null}
+ * @return array{policy_env_key:string,lock_slot:int|null,policy_id:string}
  */
 function resolveCollectionMintConfig(PDO $pdo, string $collectionSlug): array
 {
@@ -182,7 +213,7 @@ function resolveCollectionMintConfig(PDO $pdo, string $collectionSlug): array
 
     try {
         $stmt = $pdo->prepare(
-            'SELECT policy_env_key, lock_slot FROM qd_collections WHERE slug = ? LIMIT 1'
+            'SELECT policy_env_key, lock_slot, policy_id FROM qd_collections WHERE slug = ? LIMIT 1'
         );
         $stmt->execute([$collectionSlug]);
         $collection = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -221,10 +252,17 @@ function resolveCollectionMintConfig(PDO $pdo, string $collectionSlug): array
     if ($lockSlot !== null && $lockSlot <= 0) {
         $lockSlot = null;
     }
+    $policyId = strtolower(trim((string) ($collection['policy_id'] ?? '')));
+    if ($policyId !== '' && !preg_match('/^[0-9a-f]{56}$/', $policyId)) {
+        throw new RuntimeException(
+            "Collection '{$collectionSlug}' has invalid policy_id '{$policyId}' in qd_collections."
+        );
+    }
 
     return [
         'policy_env_key' => $policyEnvKey,
         'lock_slot'      => $lockSlot,
+        'policy_id'      => $policyId,
     ];
 }
 

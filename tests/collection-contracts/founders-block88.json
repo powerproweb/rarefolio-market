@@ -1,0 +1,36 @@
+{
+  "name": "Founders Block 88",
+  "main_site_root": "../01_rarefolio.io",
+  "token_seed_sql": "db/migrations/007_seed_founders_block88_tokens.sql",
+  "block_seed_sql": "api/sql/seed_block88_blocks.sql",
+  "stories_seed_sql": "api/sql/seed_block88_stories.sql",
+  "story_fallback_dir": "assets/stories/block88",
+  "shared_fallback_file": "assets/stories/block88/shared.html",
+  "asset_dir": "assets/img/collection/scnft_founders",
+  "asset_required_files": [
+    "README.md"
+  ],
+  "token_ids": [
+    "qd-silver-0000705",
+    "qd-silver-0000706",
+    "qd-silver-0000707",
+    "qd-silver-0000708",
+    "qd-silver-0000709",
+    "qd-silver-0000710",
+    "qd-silver-0000711",
+    "qd-silver-0000712"
+  ],
+  "expected": {
+    "token_insert_table": "qd_tokens",
+    "token_insert_count": 8,
+    "block_insert_table": "qd_blocks",
+    "block_insert_count": 1,
+    "story_insert_table": "qd_stories",
+    "story_insert_count": 9,
+    "block_id": "block88",
+    "bar_serial": "E101837",
+    "batch_num": 89,
+    "folder_slug": "scnft_founders",
+    "story_mode": "per_item"
+  }
+}

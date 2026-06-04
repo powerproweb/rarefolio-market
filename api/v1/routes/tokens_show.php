@@ -340,6 +340,9 @@ if (is_array($cip25Root)) {
 }
 $isFoundersCollection = in_array((string) $row['collection_slug'], ['silverbar-01-founders-v2', 'silverbar-01-founders'], true);
 if ($isFoundersCollection) {
+    if ($barSerial === null) {
+        $barSerial = 'E101837';
+    }
     if ($proofManifestUri === null) {
         $proofManifestUri = 'https://rarefolio.io/assets/img/collection/scnft_founders/manifest.json';
     }

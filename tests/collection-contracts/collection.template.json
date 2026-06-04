@@ -1,0 +1,36 @@
+{
+  "name": "<COLLECTION_DISPLAY_NAME>",
+  "main_site_root": "../01_rarefolio.io",
+  "token_seed_sql": "db/migrations/<NNN>_seed_<collection>_tokens.sql",
+  "block_seed_sql": "api/sql/seed_<collection>_blocks.sql",
+  "stories_seed_sql": "api/sql/seed_<collection>_stories.sql",
+  "story_fallback_dir": "assets/stories/<story_folder>",
+  "shared_fallback_file": "assets/stories/<story_folder>/shared.html",
+  "asset_dir": "assets/img/collection/<folder_slug>",
+  "asset_required_files": [
+    "README.md"
+  ],
+  "token_ids": [
+    "<TOKEN_ID_1>",
+    "<TOKEN_ID_2>",
+    "<TOKEN_ID_3>",
+    "<TOKEN_ID_4>",
+    "<TOKEN_ID_5>",
+    "<TOKEN_ID_6>",
+    "<TOKEN_ID_7>",
+    "<TOKEN_ID_8>"
+  ],
+  "expected": {
+    "token_insert_table": "qd_tokens",
+    "token_insert_count": 8,
+    "block_insert_table": "qd_blocks",
+    "block_insert_count": 1,
+    "story_insert_table": "qd_stories",
+    "story_insert_count": 9,
+    "block_id": "<BLOCK_ID>",
+    "bar_serial": "<BAR_SERIAL>",
+    "batch_num": 0,
+    "folder_slug": "<FOLDER_SLUG>",
+    "story_mode": "<STORY_MODE>"
+  }
+}

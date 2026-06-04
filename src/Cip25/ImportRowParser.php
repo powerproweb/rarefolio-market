@@ -101,7 +101,12 @@ final class ImportRowParser
         $customMeta = [];
         foreach ($data as $col => $val) {
             if (str_starts_with($col, 'meta_') && $val !== '') {
-                $customMeta[substr($col, 5)] = $val;
+                $metaKey = substr($col, 5);
+                if (in_array($metaKey, ['proof_manifest_uri', 'evidence_public_url'], true)) {
+                    $customMeta[$metaKey] = Validator::sanitizeValue($val);
+                    continue;
+                }
+                $customMeta[$metaKey] = $val;
             }
         }
 
@@ -140,6 +145,11 @@ final class ImportRowParser
         if ($policyId !== '' && !preg_match('/^[0-9a-f]{56}$/i', $policyId)) {
             $errors[] = 'policy_id must be 56 hex chars (or left blank).';
         }
+        $contractValidation = self::validateCollectionContractFields($asset);
+        $errors = array_merge($errors, $contractValidation['errors']);
+        $warnings = array_merge($warnings, $contractValidation['warnings']);
+        $errors = array_values(array_unique($errors));
+        $warnings = array_values(array_unique($warnings));
 
         $status = match (true) {
             !empty($errors) => 'error',
@@ -179,6 +189,9 @@ final class ImportRowParser
             $validation = Validator::validate($asset, true);
             $errors = array_merge($errors, $validation['errors']);
             $warnings = array_merge($warnings, $validation['warnings']);
+            $contractValidation = self::validateCollectionContractFields($asset);
+            $errors = array_merge($errors, $contractValidation['errors']);
+            $warnings = array_merge($warnings, $contractValidation['warnings']);
         }
 
         $tid = trim((string)($row['rarefolio_token_id'] ?? ''));
@@ -198,11 +211,72 @@ final class ImportRowParser
         if ($policyId !== '' && !preg_match('/^[0-9a-f]{56}$/i', $policyId)) {
             $errors[] = 'policy_id must be 56 hex chars (or left blank).';
         }
+        $errors = array_values(array_unique($errors));
+        $warnings = array_values(array_unique($warnings));
 
         return [
             'valid' => $errors === [],
             'errors' => $errors,
             'warnings' => $warnings,
         ];
+    }
+
+    /**
+     * Enforce collection-level metadata contract fields required for launch safety.
+     *
+     * @param array<string,mixed> $asset
+     * @return array{errors:array<int,string>,warnings:array<int,string>}
+     */
+    private static function validateCollectionContractFields(array $asset): array
+    {
+        $errors = [];
+        $warnings = [];
+
+        $attrs = $asset['attributes'] ?? null;
+        $barSerial = '';
+        if (is_array($attrs) && !array_is_list($attrs)) {
+            $barSerial = strtoupper(self::metadataValueToString($attrs['bar_serial'] ?? null));
+        }
+
+        if ($barSerial === '') {
+            $errors[] = 'attributes.bar_serial is required (set attr_bar_serial).';
+        } elseif (!preg_match('/^[A-Z][0-9]{5,12}$/', $barSerial)) {
+            $errors[] = 'attributes.bar_serial format is invalid (expected letter + digits, e.g. E101837).';
+        }
+
+        $proofManifest = self::metadataValueToString($asset['proof_manifest_uri'] ?? null);
+        if ($proofManifest === '') {
+            $errors[] = 'proof_manifest_uri is required (set meta_proof_manifest_uri).';
+        } elseif (!preg_match('#^(https?://|ipfs://)#i', $proofManifest)) {
+            $errors[] = 'proof_manifest_uri must start with https:// or ipfs://.';
+        }
+        $evidenceUrl = self::metadataValueToString($asset['evidence_public_url'] ?? null);
+        if ($evidenceUrl === '') {
+            $errors[] = 'evidence_public_url is required (set meta_evidence_public_url).';
+        } elseif (!preg_match('#^(https?://|ipfs://)#i', $evidenceUrl)) {
+            $errors[] = 'evidence_public_url must start with https:// or ipfs://.';
+        }
+
+        return [
+            'errors' => array_values(array_unique($errors)),
+            'warnings' => array_values(array_unique($warnings)),
+        ];
+    }
+
+    private static function metadataValueToString(mixed $value): string
+    {
+        if (is_string($value)) {
+            return trim($value);
+        }
+        if (is_array($value)) {
+            $parts = [];
+            foreach ($value as $part) {
+                if (is_string($part)) {
+                    $parts[] = $part;
+                }
+            }
+            return trim(implode('', $parts));
+        }
+        return '';
     }
 }

@@ -29,6 +29,15 @@ The receiver:
 2. Rejects any `X-RF-Nonce` it has already recorded.
 3. Persists each accepted nonce for at least `4 * max_skew` seconds.
 
+## Receiver secret candidates
+
+The Rarefolio receiver verifies signatures against all configured active candidates:
+
+- `RF_WEBHOOK_SECRET`
+- `RF_WEBHOOK_SECRET_PREVIOUS` (optional overlap secret)
+
+Each variable can contain a comma-separated list.
+
 ## Events
 
 ### `mint-complete`
@@ -89,8 +98,10 @@ if (!$result['ok']) {
 
 ## Secret rotation
 
-1. Generate a new secret:  `openssl rand -hex 32`
-2. Add it to the main site as `RF_WEBHOOK_SECRET_NEXT`.
-3. Temporarily accept both old and new in `_hmac.php` (future work).
-4. Flip marketplace `PUBLIC_SITE_WEBHOOK_SECRET` to the new value.
-5. Remove the old value after one webhook retry cycle (~10 minutes).
+1. Generate a new secret: `openssl rand -hex 32`.
+2. On Rarefolio receiver, set:
+   - `RF_WEBHOOK_SECRET=<new>`
+   - `RF_WEBHOOK_SECRET_PREVIOUS=<old>`
+3. On Market sender, set `PUBLIC_SITE_WEBHOOK_SECRET=<new>`.
+4. Send a signed webhook and confirm append in receiver logs.
+5. After one retry window with stable delivery, clear `RF_WEBHOOK_SECRET_PREVIOUS`.

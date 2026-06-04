@@ -2,7 +2,7 @@
 This document is the single source of truth for configuring the two Rarefolio
 codebases so they talk to each other correctly:
 - `01_rarefolio.io` — the public static site (with a small PHP `api/` surface)
-- `01a_rarefolio_marketplace` — the PHP + Node marketplace
+- `01a_rarefolio_market` — the PHP + Node marketplace
 Work through the sections in order. None of it is optional for production;
 a few steps can be skipped for local development and are marked as such.
 ## 1. The two env surfaces at a glance
@@ -18,11 +18,12 @@ a few steps can be skipped for local development and are marked as such.
 | `PUBLIC_SITE_WEBHOOK_URL_BASE`          | marketplace `.env`                            | plain  | no          |
 | `PUBLIC_SITE_WEBHOOK_SECRET`            | marketplace `.env`                            | secret | **yes (A)** |
 | `RF_WEBHOOK_SECRET`                     | main site environment (`api/webhook/.env` or server env) | secret | **yes (A)** |
+| `RF_WEBHOOK_SECRET_PREVIOUS`            | main site environment (`api/webhook/.env` or server env) | secret | no (rotation overlap) |
 | `RF_WEBHOOK_MAX_SKEW`                   | main site environment                         | plain  | no          |
 Pairs marked with the same letter must be byte-identical.
 ## 2. Generate the shared webhook secret
 The marketplace ships with a tiny generator so you never have to leave PHP:
-```powershell
+```bash
 php scripts/gen-webhook-secret.php
 ```
 It prints a 64-character hex string. Paste that same string into BOTH:
@@ -31,9 +32,9 @@ It prints a 64-character hex string. Paste that same string into BOTH:
 > If you already generated a 32-byte hash on your own, just use that. The
 > format does not matter as long as both sides have the same string.
 ## 3. Configure the marketplace
-```powershell
-Copy-Item .env.example .env
-notepad .env     # or your editor of choice
+```bash
+cp .env.example .env
+$EDITOR .env
 ```
 Fill in, in order:
 1. **DB_\***: real MySQL credentials (see marketplace README for schema migrations).
@@ -57,7 +58,7 @@ RF_WEBHOOK_SECRET = <paste the same secret from step 2>
 ```
 ### Apache + mod_env
 Add to `api/webhook/.htaccess` (alongside the existing headers):
-```apache path=null start=null
+```apache
 SetEnv RF_WEBHOOK_SECRET <paste the same secret from step 2>
 # optional:
 # SetEnv RF_WEBHOOK_MAX_SKEW 300
@@ -71,16 +72,16 @@ In the fpm pool config (e.g. `/etc/php/8.1/fpm/pool.d/www.conf`):
 env[RF_WEBHOOK_SECRET] = <paste the same secret from step 2>
 ```
 Then reload fpm: `sudo systemctl reload php8.1-fpm`.
-### Local dev (PowerShell, session-scoped)
-```powershell
-$env:RF_WEBHOOK_SECRET = "paste-the-secret-here"
-php -S localhost:8080 -t M:\01_Warp_Projects\01_projects\01_rarefolio.io
+### Local dev (session-scoped)
+```bash
+export RF_WEBHOOK_SECRET="paste-the-secret-here"
+php -S localhost:8080 -t /path/to/01_rarefolio.io
 ```
 ## 5. Wire the browser client base URL
 The main site's browser client in `assets/js/rf-market.js` reads
 `window.RF_MARKET_BASE`. It is currently set at the top of `verify.html` and
 `nft.html` to:
-```html path=null start=null
+```html
 <script>window.RF_MARKET_BASE = 'https://market.rarefolio.io';</script>
 ```
 Change this one line in both pages when:
@@ -88,16 +89,15 @@ Change this one line in both pages when:
 - You want to point local dev at `http://localhost:8080` temporarily.
 ## 6. Local development — minimal viable bridge
 Without DNS, TLS, or a reverse proxy, you can still exercise the full bridge:
-```powershell
+```bash
 # Terminal 1: marketplace + API on port 8081
-php -S localhost:8081 -t M:\01_Warp_Projects\01_projects\01a_rarefolio_marketplace `
-    M:\01_Warp_Projects\01_projects\01a_rarefolio_marketplace\tests\cli_router.php
+php -S localhost:8081 -t /path/to/01a_rarefolio_market /path/to/01a_rarefolio_market/tests/cli_router.php
 # Terminal 2: main site on port 8080
-$env:RF_WEBHOOK_SECRET = "paste-the-secret-here"
-php -S localhost:8080 -t M:\01_Warp_Projects\01_projects\01_rarefolio.io
+export RF_WEBHOOK_SECRET="paste-the-secret-here"
+php -S localhost:8080 -t /path/to/01_rarefolio.io
 ```
 Then in `verify.html` / `nft.html`, temporarily change:
-```html path=null start=null
+```html
 <script>window.RF_MARKET_BASE = 'http://localhost:8081';</script>
 ```
 Marketplace `.env` must include `CORS_ALLOWED_ORIGINS=http://localhost:8080`.
@@ -117,13 +117,12 @@ Before pointing real DNS at the marketplace, confirm all of these:
 - [ ] `uploads/webhook-log/` exists and is writable by the web user on the main site
 ## 8. Secret rotation runbook
 1. Generate a new secret: `php scripts/gen-webhook-secret.php`.
-2. Set it first on the **main site** as `RF_WEBHOOK_SECRET`.
-3. Wait for a short overlap (no outgoing webhooks will succeed during this window).
-4. Update `PUBLIC_SITE_WEBHOOK_SECRET` on the **marketplace** to the new value.
-5. Verify a mint-complete webhook reaches the main site (tail `uploads/webhook-log/mint-complete.log`).
-6. Delete any `.bak` copies of the old secret from the filesystem.
-A future enhancement (noted in `docs/WEBHOOKS.md`) will allow the receiver to
-temporarily accept both old + new secrets for zero-downtime rotation.
+2. Update the **main site** receiver to:
+   - `RF_WEBHOOK_SECRET=<new-secret>`
+   - `RF_WEBHOOK_SECRET_PREVIOUS=<old-secret>`
+3. Update **market** sender `PUBLIC_SITE_WEBHOOK_SECRET=<new-secret>`.
+4. Verify signed delivery reaches main site logs (`uploads/webhook-log/mint-complete.log`).
+5. After one retry window with stable delivery, clear `RF_WEBHOOK_SECRET_PREVIOUS`.
 ## 9. References
 - `docs/API.md` — v1 endpoints, response envelope, error codes
 - `docs/WEBHOOKS.md` — signature format, events, sample payloads

@@ -1,11 +1,11 @@
 # RareFolio.io — Launch Checklist
 
 **Code baseline:** `f83a63b` (main)
-**Status:** Preprod minting complete (E.2) + Founders CID replacement complete (E.3). Phase F hardening is complete; current gate is Phase G pre-launch smoke and launch sequencing.
+**Status:** Preprod minting complete (E.2) + Founders CID replacement complete (E.3). Phase F hardening is complete; current gate is Phase G release evidence bundle and launch sequencing.
 
 ---
 
-## Current execution snapshot (2026-05-20)
+## Current execution snapshot (2026-05-30)
 
 - [x] **E.2 complete:** all 8 Founders tokens minted + confirmed on preprod (`docs/FOUNDERS_MINT_LOG.md`)
 - [x] **E.3 complete:** CID replacement applied using `db/migrations/017_update_founders_ipfs_cids.sql` and `db/migrations/018_fix_founders_ipfs_cids.sql`
@@ -35,6 +35,17 @@
   - observed one pre-fix `401` at `18:35:07 -0400`
   - post-fix ownership-verify requests at `18:38:04 -0400` and `18:51:06 -0400` returned `200`
   - no new post-fix unauthorized entries observed for `/api/private/ownership-verify.php`
+- [x] Founders launch hardening implementation staged locally (2026-05-30):
+  - Stage A: Founders `bar_serial` contract fallback and repair migration
+  - Stage B: fail-closed import contract checks and static collection contract validator
+  - Stage C: mint policy parity checks and dual-secret webhook receiver support
+- [x] Live drift-guard contract drift resolved (2026-05-30):
+  - targeted production remediation applied for `qd-silver-0000705` bar_serial contract fields
+  - backup/evidence path: `/home/rarefolio/rf_storage/ops_backups/founders_bar_serial_fix_20260530_025106`
+  - post-fix guard run (`2026-05-30T02:52:55Z`) returned `ok=true` for all Founders tokens
+- [x] Fresh release-evidence recency checks captured (2026-05-30):
+  - API health: `GET https://market.rarefolio.io/api/v1/health` -> `ok=true`, `db=ok` at `2026-05-30T02:56:03Z`
+  - challenge endpoint: `POST https://rarefolio.io/api/download/challenge.php` -> `ok=true` with valid challenge payload
 
 ---
 
@@ -168,7 +179,16 @@ Gate passed on 2026-04-24. See `docs/FOUNDERS_MINT_LOG.md` for tx hashes and ver
 - [x] Final smoke test: `node sidecar/test-smoke.mjs`
 - [x] Final API test: `curl https://market.rarefolio.io/api/v1/health`
 - [x] Final admin login check: `https://rarefolio.io/admin/`
-- [ ] Run Founders drift guard: `php scripts/check-founders-launch-drift.php --base=https://market.rarefolio.io`
+- [x] Run Founders drift guard with listings scan and expected bar serial:
+  - `php scripts/check-founders-launch-drift.php --base=https://market.rarefolio.io --expected-bar-serial=E101837 --json`
+- [x] Run representative token contract checks (`qd-silver-0000705` through `qd-silver-0000712`) and confirm:
+  - `bar_serial=E101837`
+  - `status.primary_sale=minted`
+  - `status.listing=listed_fixed`
+  - `status.custody=platform`
+  - non-empty `chain.mint_tx_hash`
+- [ ] Run one live challenge + claim-download evidence pass and record output artifacts
+- [ ] Confirm one release evidence bundle is complete and green
 - [ ] Announce
 
 ---

@@ -58,6 +58,7 @@ if (isset($_GET['download_template'])) {
         'image_ipfs','mediaType','website',
         'attr_bar_serial','attr_block','attr_archetype',
         'attr_rarity','attr_material','attr_weight_oz',
+        'meta_proof_manifest_uri','meta_evidence_public_url',
         'meta_certification','meta_provenance',
     ];
     $example = [
@@ -67,6 +68,8 @@ if (isset($_GET['download_template'])) {
         'ipfs://REPLACE_WITH_CID','image/jpeg','https://rarefolio.io',
         'E101837','88','Archivist',
         'Founder','Fine silver .999','100',
+        'https://rarefolio.io/assets/img/collection/scnft_founders/manifest.json',
+        'https://rarefolio.io/assets/img/collection/scnft_founders/master_sha256_hash_ipfs.md',
         '','',
     ];
     $out = fopen('php://output', 'w');
@@ -77,6 +80,8 @@ if (isset($_GET['download_template'])) {
         $c === 'rarefolio_token_id' => '# Required. Unique token ID.',
         $c === 'asset_name_utf8'    => '# Required. On-chain name (max 64 bytes).',
         $c === 'image_ipfs'         => '# Required. Must start with ipfs://',
+        $c === 'meta_proof_manifest_uri' => '# Required. Proof manifest URL (https:// or ipfs://).',
+        $c === 'meta_evidence_public_url' => '# Required. Evidence URL (https:// or ipfs://).',
         str_starts_with($c, 'attr_') => '# Optional. Becomes attributes.' . substr($c, 5),
         str_starts_with($c, 'meta_') => '# Optional. Becomes top-level metadata field.',
         default => '# Optional.',
@@ -96,6 +101,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirmed_rows'])) {
 
     foreach ($rows as $row) {
         try {
+            applyCollectionInvariantChecks($pdo, $row);
+            if (!empty($row['errors']) && is_array($row['errors'])) {
+                throw new RuntimeException('Collection contract validation failed: ' . implode(' | ', $row['errors']));
+            }
             $tid  = (string)($row['rarefolio_token_id'] ?? '');
             $validation = ImportRowParser::validateConfirmedRow($row);
             if ($validation['valid'] !== true) {
@@ -148,6 +157,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file']) && $impo
         $preview = $parsed['preview'];
         if ($parseError !== null) {
             $preview = null;
+        } else {
+            foreach ($preview as &$previewRow) {
+                applyCollectionInvariantChecks($pdo, $previewRow);
+            }
+            unset($previewRow);
         }
     }
 }
@@ -159,6 +173,97 @@ function extractCidImport(string $ipfsUri): ?string
 {
     if (preg_match('#^ipfs://([A-Za-z0-9/._-]+)#', $ipfsUri, $m)) return $m[1];
     return null;
+}
+
+/**
+ * Applies DB-backed collection checks and fail-closed contract rules to one import row.
+ *
+ * @param array<string,mixed> $row
+ */
+function applyCollectionInvariantChecks(PDO $pdo, array &$row): void
+{
+    $errors = [];
+    $warnings = [];
+    $existingErrors = $row['errors'] ?? [];
+    $existingWarnings = $row['warnings'] ?? [];
+    if (is_array($existingErrors)) {
+        $errors = array_values(array_filter($existingErrors, 'is_string'));
+    }
+    if (is_array($existingWarnings)) {
+        $warnings = array_values(array_filter($existingWarnings, 'is_string'));
+    }
+
+    $asset = $row['asset'] ?? null;
+    $attrs = is_array($asset) && isset($asset['attributes']) && is_array($asset['attributes']) && !array_is_list($asset['attributes'])
+        ? $asset['attributes']
+        : [];
+    $barSerial = strtoupper(trim((string) ($attrs['bar_serial'] ?? '')));
+    if ($barSerial === '') {
+        $errors[] = 'attributes.bar_serial is required (set attr_bar_serial).';
+    } elseif (!preg_match('/^[A-Z][0-9]{5,12}$/', $barSerial)) {
+        $errors[] = 'attributes.bar_serial format is invalid (expected letter + digits, e.g. E101837).';
+    }
+
+    $proofManifest = trim((string) ((is_array($asset) ? ($asset['proof_manifest_uri'] ?? '') : '')));
+    if ($proofManifest === '') {
+        $errors[] = 'proof_manifest_uri is required (set meta_proof_manifest_uri).';
+    } elseif (!preg_match('#^(https?://|ipfs://)#i', $proofManifest)) {
+        $errors[] = 'proof_manifest_uri must start with https:// or ipfs://.';
+    }
+
+    $evidenceUrl = trim((string) ((is_array($asset) ? ($asset['evidence_public_url'] ?? '') : '')));
+    if ($evidenceUrl === '') {
+        $errors[] = 'evidence_public_url is required (set meta_evidence_public_url).';
+    } elseif (!preg_match('#^(https?://|ipfs://)#i', $evidenceUrl)) {
+        $errors[] = 'evidence_public_url must start with https:// or ipfs://.';
+    }
+
+    $collectionSlug = trim((string) ($row['collection_slug'] ?? ''));
+    if ($collectionSlug !== '') {
+        $stmt = $pdo->prepare('SELECT policy_env_key, policy_id FROM qd_collections WHERE slug = ? LIMIT 1');
+        $stmt->execute([$collectionSlug]);
+        $collection = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!is_array($collection)) {
+            $errors[] = "collection_slug '{$collectionSlug}' does not exist in qd_collections.";
+        } else {
+            $policyEnvKey = strtoupper(trim((string) ($collection['policy_env_key'] ?? '')));
+            if ($policyEnvKey === '') {
+                $errors[] = "collection_slug '{$collectionSlug}' has no policy_env_key in qd_collections.";
+            } elseif (!preg_match('/^[A-Z0-9_]+$/', $policyEnvKey)) {
+                $errors[] = "collection_slug '{$collectionSlug}' has invalid policy_env_key '{$policyEnvKey}'.";
+            } else {
+                $row['policy_env_key'] = $policyEnvKey;
+            }
+
+            $collectionPolicyId = strtolower(trim((string) ($collection['policy_id'] ?? '')));
+            $rowPolicyId = strtolower(trim((string) ($row['policy_id'] ?? '')));
+
+            if ($collectionPolicyId !== '' && !preg_match('/^[0-9a-f]{56}$/', $collectionPolicyId)) {
+                $errors[] = "collection_slug '{$collectionSlug}' has invalid policy_id in qd_collections.";
+            }
+            if ($rowPolicyId !== '' && !preg_match('/^[0-9a-f]{56}$/', $rowPolicyId)) {
+                $errors[] = 'policy_id must be 56 hex chars (or left blank).';
+            }
+            if ($collectionPolicyId !== '' && $rowPolicyId !== '' && $collectionPolicyId !== $rowPolicyId) {
+                $errors[] = "policy_id mismatch for '{$collectionSlug}' (row '{$rowPolicyId}' vs collection '{$collectionPolicyId}').";
+            }
+            if ($collectionPolicyId !== '' && $rowPolicyId === '') {
+                $row['policy_id'] = $collectionPolicyId;
+                $warnings[] = "policy_id auto-resolved from qd_collections for '{$collectionSlug}'.";
+            }
+        }
+    }
+
+    $errors = array_values(array_unique($errors));
+    $warnings = array_values(array_unique($warnings));
+    $row['errors'] = $errors;
+    $row['warnings'] = $warnings;
+    $row['status'] = match (true) {
+        $errors !== [] => 'error',
+        $warnings !== [] => 'warning',
+        default => 'ok',
+    };
 }
 
 /**
@@ -221,8 +326,11 @@ require __DIR__ . '/includes/header.php';
         <tr><td class="rf-mono">description</td><td>No</td><td>Each metadata string must be 64 bytes or less</td></tr>
         <tr><td class="rf-mono">mediaType</td><td>No</td><td>Default: <code>image/jpeg</code></td></tr>
         <tr><td class="rf-mono">website</td><td>No</td><td>Full URL</td></tr>
-        <tr><td class="rf-mono">attr_*</td><td>No</td><td>Any <code>attr_foo</code> → <code>attributes.foo</code>. Add as many as you like.</td></tr>
+        <tr><td class="rf-mono">attr_bar_serial</td><td>Yes</td><td>Maps to <code>attributes.bar_serial</code>, required for launch contract validation.</td></tr>
+        <tr><td class="rf-mono">attr_*</td><td>No</td><td>Any additional <code>attr_foo</code> maps to <code>attributes.foo</code>.</td></tr>
         <tr><td class="rf-mono">meta_*</td><td>No</td><td>Any <code>meta_foo</code> → top-level metadata field <code>foo</code></td></tr>
+        <tr><td class="rf-mono">meta_proof_manifest_uri</td><td>Yes</td><td>Proof manifest URL, must start with <code>https://</code> or <code>ipfs://</code></td></tr>
+        <tr><td class="rf-mono">meta_evidence_public_url</td><td>Yes</td><td>Evidence URL, must start with <code>https://</code> or <code>ipfs://</code></td></tr>
         </tbody>
     </table>
 </div>

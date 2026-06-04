@@ -53,6 +53,7 @@ function csvHeaderColumns(): array
         'title','character_name','edition','artist','description',
         'image_ipfs','mediaType','website',
         'attr_bar_serial','attr_block','meta_certification',
+        'meta_proof_manifest_uri','meta_evidence_public_url',
     ];
 }
 
@@ -94,6 +95,8 @@ function baseImportRow(): array
         'attr_bar_serial' => 'E101837',
         'attr_block' => '88',
         'meta_certification' => 'on-chain',
+        'meta_proof_manifest_uri' => 'https://rarefolio.io/assets/img/collection/scnft_founders/manifest.json',
+        'meta_evidence_public_url' => 'https://rarefolio.io/assets/img/collection/scnft_founders/master_sha256_hash_ipfs.md',
     ];
 }
 
@@ -144,10 +147,10 @@ test('uploaded csv: preview parser handles comments, blanks, and strict errors',
 
     $rows = [];
     $rows[] = csvHeaderColumns();
-    $rows[] = ['# template notes', '', '', '', '', '', '', '', '', '', '', '', '', '', ''];
+    $rows[] = ['# template notes', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''];
     $rows[] = array_values($valid);
     $rows[] = array_values($invalid);
-    $rows[] = ['', '', '', '', '', '', '', '', '', '', '', '', '', '', ''];
+    $rows[] = ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''];
 
     $csvPath = writeTempCsv($rows);
     try {

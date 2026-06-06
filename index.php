@@ -419,6 +419,36 @@ $apiListingsPath = '/api/v1/listings';
     return MAIN_SITE + '/assets/img/nfts/sys/placeholder.jpg';
   }
 
+  function certIdFromListing(row) {
+    var tokenMatch = String(row && row.cnft_id ? row.cnft_id : '').match(/^qd-silver-(\d{7})$/i);
+    if (!tokenMatch) return '';
+
+    var barSerialRaw = String((row && row.bar_serial) || '').trim();
+    var barSerial = barSerialRaw ? barSerialRaw.toUpperCase() : '';
+    if (!barSerial) {
+      var collection = String((row && row.collection) || '').toLowerCase();
+      if (collection.indexOf('silverbar-01') >= 0 || collection.indexOf('founders') >= 0) {
+        barSerial = 'E101837';
+      } else if (collection.indexOf('silverbar-02') >= 0) {
+        barSerial = 'E102528';
+      } else if (collection.indexOf('silverbar-03') >= 0) {
+        barSerial = 'P154829';
+      }
+    }
+    if (!barSerial) return '';
+    return 'QDCERT-' + barSerial + '-' + tokenMatch[1];
+  }
+
+  function verifyUrlForListing(row) {
+    var params = new URLSearchParams();
+    var certId = certIdFromListing(row);
+    var cnftId = String(row && row.cnft_id ? row.cnft_id : '').trim();
+    if (certId) params.set('cert', certId);
+    if (cnftId) params.set('cnft', cnftId);
+    var qp = params.toString();
+    return MAIN_SITE + '/verify' + (qp ? ('?' + qp) : '');
+  }
+
   function toNumber(value, fallback) {
     var n = Number(value);
     return Number.isFinite(n) ? n : fallback;
@@ -511,6 +541,7 @@ $apiListingsPath = '/api/v1/listings';
       var price = escapeHtml(formatAda(row.price_lovelace));
       var updated = escapeHtml(formatDate(row.updated_at));
       var buyUrl = '/buy.php?token=' + encodeURIComponent(row.cnft_id || '');
+      var verifyUrl = verifyUrlForListing(row);
       return '<tr>'
         + '<td class="mono">' + cnft + '</td>'
         + '<td>' + title + (character ? '<div style="color:#9aa3b2;margin-top:.25rem;">' + character + '</div>' : '') + '</td>'
@@ -519,7 +550,7 @@ $apiListingsPath = '/api/v1/listings';
         + '<td>' + listingState + '</td>'
         + '<td>' + price + '</td>'
         + '<td>' + updated + '</td>'
-        + '<td><a class="btn" href="' + buyUrl + '">View</a></td>'
+        + '<td><a class="btn" href="' + buyUrl + '">View</a> <a class="btn" href="' + verifyUrl + '" target="_blank" rel="noopener">Verify</a></td>'
         + '</tr>';
     }).join('');
 
@@ -540,7 +571,7 @@ $apiListingsPath = '/api/v1/listings';
       var price = escapeHtml(formatAda(row.price_lovelace));
       var updated = escapeHtml(formatDate(row.updated_at));
       var buyUrl = '/buy.php?token=' + encodeURIComponent(row.cnft_id || '');
-      var verifyUrl = MAIN_SITE + '/verify?cnft=' + encodeURIComponent(row.cnft_id || '');
+      var verifyUrl = verifyUrlForListing(row);
       var imgSrc = escapeHtml(imageUrl(row));
       var fallback = escapeHtml(MAIN_SITE + '/assets/img/nfts/sys/placeholder.jpg');
 

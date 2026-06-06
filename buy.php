@@ -117,11 +117,18 @@ function ipfsGateway(string $uri): string
     }
     return $uri;
 }
+function isFoundersTokenId(string $tokenId): bool
+{
+    return preg_match('/^qd-silver-00007(0[5-9]|1[0-2])$/', $tokenId) === 1;
+}
 
 
 $cip25    = [];
 $imgUri   = '';
 $descText = '';
+$mainSiteUrl = 'https://rarefolio.io';
+$displayImgUri = '';
+$imgFallbackUri = $mainSiteUrl . '/assets/img/nfts/sys/placeholder.jpg';
 
 if ($token) {
     $cip25 = Reader::decode((string)($token['cip25_json'] ?? '{}'));
@@ -141,11 +148,22 @@ if ($token) {
         (string)($token['policy_id'] ?? ''),
         (string)($token['asset_name_utf8'] ?? '')
     );
+
+    $tokenForImage = trim((string)($token['rarefolio_token_id'] ?? $tokenId));
+    $collectionSlug = strtolower(trim((string)($token['collection_slug'] ?? '')));
+    $isFoundersImage = isFoundersTokenId($tokenForImage) || str_contains($collectionSlug, 'founders');
+    if ($isFoundersImage && $tokenForImage !== '') {
+        $displayImgUri = $mainSiteUrl . '/assets/img/collection/scnft_founders/' . rawurlencode($tokenForImage) . '.jpg';
+        if ($imgUri !== '') {
+            $imgFallbackUri = $imgUri;
+        }
+    } elseif ($imgUri !== '') {
+        $displayImgUri = $imgUri;
+    }
 }
 
 $isSold = $token && in_array($token['primary_sale_status'], ['sold', 'sold_pre_marketplace'], true);
 $sidecarUrl = rtrim((string) Config::get('SIDECAR_BASE_URL', 'http://localhost:4000'), '/');
-$mainSiteUrl = 'https://rarefolio.io';
 $displayUsdPerAda = usdPerAdaRate();
 
 $pageTitle = $token ? h($token['title']) . ' — RareFolio' : 'Purchase — RareFolio';
@@ -209,8 +227,9 @@ $pageTitle = $token ? h($token['title']) . ' — RareFolio' : 'Purchase — Rare
 
 <?php elseif ($isSold): ?>
   <div style="text-align:center;padding:4rem 1rem;">
-    <?php if ($imgUri): ?>
-      <img src="<?= h($imgUri) ?>" alt="<?= h($token['title']) ?>"
+    <?php if ($displayImgUri): ?>
+      <img src="<?= h($displayImgUri) ?>" alt="<?= h($token['title']) ?>"
+           onerror="if(this.dataset.fallbackApplied==='1'){return;}this.dataset.fallbackApplied='1';this.src='<?= h($imgFallbackUri) ?>';"
            style="max-width:360px;border-radius:16px;margin-bottom:1.5rem;display:block;margin-left:auto;margin-right:auto;">
     <?php endif; ?>
     <span class="sold-badge">SOLD — This piece has found its keeper.</span>
@@ -224,8 +243,9 @@ $pageTitle = $token ? h($token['title']) . ' — RareFolio' : 'Purchase — Rare
 
   <!-- Artwork -->
   <div class="buy-art">
-    <?php if ($imgUri && !str_contains($imgUri, 'REPLACE_WITH_CID')): ?>
-      <img src="<?= h($imgUri) ?>" alt="<?= h($token['title']) ?>" loading="eager">
+    <?php if ($displayImgUri && !str_contains($displayImgUri, 'REPLACE_WITH_CID')): ?>
+      <img src="<?= h($displayImgUri) ?>" alt="<?= h($token['title']) ?>" loading="eager"
+           onerror="if(this.dataset.fallbackApplied==='1'){return;}this.dataset.fallbackApplied='1';this.src='<?= h($imgFallbackUri) ?>';">
     <?php else: ?>
       <div style="background:#0a0d17;border-radius:16px;aspect-ratio:1;display:flex;align-items:center;justify-content:center;color:#4a5568;">
         <span>Artwork coming soon</span>

@@ -19,6 +19,7 @@ SET
 WHERE c.slug = @target_collection_slug
   AND c.policy_env_key = 'FOUNDERS_V2'
   AND LOWER(COALESCE(c.policy_id, '')) REGEXP '^[0-9a-f]{56}$'
+  AND (t.mint_tx_hash IS NULL OR t.mint_tx_hash = '')
   AND COALESCE(t.policy_id, '') <> LOWER(c.policy_id);
 
 UPDATE qd_mint_queue q
@@ -44,6 +45,7 @@ WHERE c.slug = @target_collection_slug
   AND c.policy_env_key = 'FOUNDERS_V2'
   AND LOWER(COALESCE(c.policy_id, '')) REGEXP '^[0-9a-f]{56}$'
   AND LOWER(c.policy_id) <> @legacy_founders_policy_id
+  AND (t.mint_tx_hash IS NULL OR t.mint_tx_hash = '')
   AND t.cip25_json LIKE CONCAT('%"', @legacy_founders_policy_id, '":%');
 
 UPDATE qd_mint_queue q

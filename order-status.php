@@ -92,10 +92,10 @@ $statusSteps = [
 ];
 $currentStep = $statusSteps[$order['status'] ?? 'submitted'] ?? 1;
 
-// A delivery is complete once the on-chain delivery tx (lazy-mint OR custody transfer) is
-// recorded. Custody/instant deliveries leave status='submitted' but set mint_tx_hash, so key
-// the "delivered" UI off mint_tx_hash, not the order status.
-$isDelivered = is_array($order) && !empty($order['mint_tx_hash']) && (($order['status'] ?? '') !== 'failed');
+// buy-order inserts the order as 'pending', then sets 'submitted' only after the on-chain
+// mint/transfer succeeds ('failed' on error). qd_orders has no mint_tx_hash column here, so
+// 'submitted'/'settled' is the reliable "delivered" signal for both lazy-mint and custody.
+$isDelivered = is_array($order) && in_array(($order['status'] ?? ''), ['submitted', 'settled'], true);
 
 $mainSiteUrl = 'https://rarefolio.io';
 $pageTitle = $order
@@ -295,16 +295,6 @@ $pageTitle = $order
             </dd>
           <?php endif; ?>
 
-          <?php if (!empty($order['mint_tx_hash'])): ?>
-            <dt class="ty-dt">Delivery tx</dt>
-            <dd class="ty-dd">
-              <a href="https://cardanoscan.io/transaction/<?= h($order['mint_tx_hash']) ?>"
-                 target="_blank" rel="noopener"
-                 style="color:#00d4e7;">
-                <?= h(substr($order['mint_tx_hash'], 0, 14)) ?>…
-              </a>
-            </dd>
-          <?php endif; ?>
         </dl>
       </div>
     </div>

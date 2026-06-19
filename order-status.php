@@ -92,6 +92,11 @@ $statusSteps = [
 ];
 $currentStep = $statusSteps[$order['status'] ?? 'submitted'] ?? 1;
 
+// A delivery is complete once the on-chain delivery tx (lazy-mint OR custody transfer) is
+// recorded. Custody/instant deliveries leave status='submitted' but set mint_tx_hash, so key
+// the "delivered" UI off mint_tx_hash, not the order status.
+$isDelivered = is_array($order) && !empty($order['mint_tx_hash']) && (($order['status'] ?? '') !== 'failed');
+
 $mainSiteUrl = 'https://rarefolio.io';
 $pageTitle = $order
     ? 'Thank You — Order #' . $orderId . ' | RareFolio'
@@ -222,8 +227,13 @@ $pageTitle = $order
     <div class="ty-badge">Order #<?= (int)$orderId ?></div>
     <h1 class="ty-headline">Thank you for your purchase.</h1>
     <p class="ty-sub">
-      Your payment has been received. Your NFT will be minted and sent to
-      your wallet — typically within 24 hours.
+      <?php if ($isDelivered): ?>
+        Your payment is confirmed and your NFT &amp; companion have been delivered
+        straight to your wallet. 🎉
+      <?php else: ?>
+        Your payment has been received. Your NFT will be minted and sent to
+        your wallet — typically within 24 hours.
+      <?php endif; ?>
     </p>
   </div>
 
@@ -284,6 +294,17 @@ $pageTitle = $order
               </a>
             </dd>
           <?php endif; ?>
+
+          <?php if (!empty($order['mint_tx_hash'])): ?>
+            <dt class="ty-dt">Delivery tx</dt>
+            <dd class="ty-dd">
+              <a href="https://cardanoscan.io/transaction/<?= h($order['mint_tx_hash']) ?>"
+                 target="_blank" rel="noopener"
+                 style="color:#00d4e7;">
+                <?= h(substr($order['mint_tx_hash'], 0, 14)) ?>…
+              </a>
+            </dd>
+          <?php endif; ?>
         </dl>
       </div>
     </div>
@@ -297,7 +318,7 @@ $pageTitle = $order
         3 => ['label' => "NFT\nMinted",        'icon' => '⬡'],
         4 => ['label' => "In Your\nWallet",    'icon' => '★'],
     ];
-    $activeStep = match($order['status']) {
+    $activeStep = $isDelivered ? 4 : match($order['status']) {
         'submitted' => 1,
         'settled'   => 3,
         'failed'    => 0,
@@ -317,7 +338,7 @@ $pageTitle = $order
   </div>
 
   <!-- ── What happens next ────────────────────── -->
-  <?php if ($order['status'] !== 'settled'): ?>
+  <?php if (!$isDelivered && $order['status'] !== 'settled'): ?>
   <div class="ty-next">
     <h3>What happens next</h3>
     <ol>

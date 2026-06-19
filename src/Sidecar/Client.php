@@ -42,6 +42,18 @@ final class Client
     }
 
     /**
+     * Ask the sidecar to build an UNSIGNED ADA payment tx for the buyer to sign.
+     * Runs server-side so 127.0.0.1:4000 is reachable (the browser cannot reach it).
+     *
+     * @param array<string,mixed> $payload  { buyer_addr, recipient_addr, amount_lovelace }
+     * @return array<string,mixed>          { cbor_hex }
+     */
+    public function preparePayment(array $payload): array
+    {
+        return $this->post('/payment/prepare', $payload);
+    }
+
+    /**
      * Transfer a companion FT from treasury to collector.
      *
      * @param array<string,mixed> $payload

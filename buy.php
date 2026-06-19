@@ -375,9 +375,8 @@ $pageTitle = $token ? h($token['title']) . ' — RareFolio' : 'Purchase — Rare
 const TOKEN_ID       = <?= json_encode($tokenId) ?>;
 const PRICE_LOVELACE = <?= (int)$token['price_lovelace'] ?>;
 const SPLIT_ADDR     = <?= json_encode($token['split_wallet_addr']) ?>;
-const ORDER_API      = '/api/buy-order.php';
-const SIDECAR_PROXY  = '/admin/sidecar-proxy.php';  // proxies sidecar calls
-const SIDECAR_BASE   = <?= json_encode($sidecarUrl) ?>;
+const ORDER_API           = '/api/buy-order.php';
+const PAYMENT_PREPARE_API  = '/api/payment-prepare.php';  // server-side proxy to sidecar /payment/prepare
 
 // Copy address
 function copyAddr() {
@@ -427,9 +426,9 @@ document.getElementById('btn-connect-pay')?.addEventListener('click', async () =
         if (!buyerAddr) throw new Error('Could not get wallet address.');
         log(`Buyer addr (hex): ${buyerAddr.slice(0, 40)}…`);
 
-        // 2. Ask sidecar to build the unsigned payment tx
+        // 2. Ask our server to build the unsigned payment tx (it reaches the sidecar internally)
         status('Building payment transaction…');
-        const prepResp = await fetch(SIDECAR_PROXY + '?path=/payment/prepare', {
+        const prepResp = await fetch(PAYMENT_PREPARE_API, {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({
@@ -438,27 +437,14 @@ document.getElementById('btn-connect-pay')?.addEventListener('click', async () =
                 amount_lovelace: PRICE_LOVELACE,
             }),
         });
-        // Note: sidecar-proxy only supports GET; use direct call for POST
-        // Fall back to direct sidecar for payment prepare (public sidecar endpoint)
         let prepData;
-        if (prepResp.ok) {
+        try {
             prepData = await prepResp.json();
-        } else {
-            // Direct call if proxy doesn't support POST
-            const direct = await fetch(SIDECAR_BASE + '/payment/prepare', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({
-                    buyer_addr:      buyerAddr,
-                    recipient_addr:  SPLIT_ADDR,
-                    amount_lovelace: PRICE_LOVELACE,
-                }),
-            });
-            prepData = await direct.json();
+        } catch (_) {
+            throw new Error('Server error preparing payment. Please use the manual payment option below.');
         }
-
-        if (!prepData.cbor_hex) {
-            throw new Error(prepData.message || prepData.error || 'Sidecar returned no cbor_hex');
+        if (!prepResp.ok || !prepData.cbor_hex) {
+            throw new Error(prepData.error || prepData.message || 'Could not build payment transaction.');
         }
         log(`Unsigned tx built (${prepData.cbor_hex.length} chars)`);
 

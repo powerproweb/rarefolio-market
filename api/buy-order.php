@@ -75,6 +75,7 @@ try {
         "SELECT t.id AS nft_id,
                 t.rarefolio_token_id,
                 t.collection_slug,
+                t.policy_id,
                 t.primary_sale_status,
                 t.listing_status,
                 t.asset_name_hex,
@@ -85,6 +86,7 @@ try {
                 c.platform_fee_pct,
                 c.primary_sale_price_lovelace AS collection_price,
                 c.policy_env_key,
+                c.custody_env_key,
                 c.lock_slot
            FROM qd_tokens t
            LEFT JOIN qd_collections c ON c.slug = t.collection_slug
@@ -399,18 +401,49 @@ try {
             throw new RuntimeException('sidecar mint orchestration failed: ' . $e->getMessage(), 0, $e);
         }
     } else {
-        // Already-minted path.
-        $pdo->prepare(
-            "UPDATE qd_tokens
-                SET current_owner_wallet = :buyer_addr,
-                    custody_status = 'external',
-                    primary_sale_status = 'sold',
-                    updated_at = NOW()
-              WHERE id = :nft_id"
-        )->execute([
-            ':buyer_addr' => $buyerAddr,
-            ':nft_id'     => (int)$token['nft_id'],
-        ]);
+        // Already-minted path: deliver NFT + companion from platform custody to the buyer.
+        $custodyEnvKey = strtoupper(trim((string)($token['custody_env_key'] ?? '')));
+        $deliverPolicy = strtolower(trim((string)($token['policy_id'] ?? '')));
+        $deliverAsset  = strtolower(trim((string)($token['asset_name_hex'] ?? '')));
+        $cip25Deliver  = decodeCip25Metadata((string)($token['cip25_json'] ?? ''), $tokenId, (string)($token['asset_name_utf8'] ?? ''));
+        $companionUnit = resolveCompanionUnit($cip25Deliver);
+
+        if ($custodyEnvKey === '' || !preg_match('/^[0-9a-f]{56}$/', $deliverPolicy)
+            || !preg_match('/^[0-9a-f]+$/', $deliverAsset) || $companionUnit === null) {
+            throw new RuntimeException('custody delivery is not configured for this token');
+        }
+
+        try {
+            $sidecar  = new SidecarClient();
+            $delivery = $sidecar->transferPairedAsset([
+                'treasury_env_key'   => $custodyEnvKey,
+                'recipient_addr'     => $buyerAddr,
+                'nft_unit'           => $deliverPolicy . $deliverAsset,
+                'companion_unit'     => $companionUnit,
+                'companion_quantity' => 1,
+                'submit'             => true,
+            ]);
+            $deliveryTx = trim((string)($delivery['tx_hash'] ?? ''));
+            if ($deliveryTx === '' || !preg_match('/^[0-9a-f]{64}$/i', $deliveryTx)) {
+                throw new RuntimeException('sidecar returned invalid delivery tx hash');
+            }
+
+            $pdo->prepare(
+                "UPDATE qd_tokens
+                    SET current_owner_wallet = :buyer_addr,
+                        custody_status = 'external',
+                        primary_sale_status = 'sold',
+                        updated_at = NOW()
+                  WHERE id = :nft_id"
+            )->execute([
+                ':buyer_addr' => $buyerAddr,
+                ':nft_id'     => (int)$token['nft_id'],
+            ]);
+
+            $mintTxHash = $deliveryTx; // record the delivery tx in order metadata
+        } catch (Throwable $e) {
+            throw new RuntimeException('custody delivery failed: ' . $e->getMessage(), 0, $e);
+        }
     }
 
     $pdo->prepare(
@@ -463,6 +496,11 @@ try {
         echo json_encode(['ok' => false, 'error' => 'mint orchestration failed, order marked failed for review']);
         exit;
     }
+    if (str_contains(strtolower($errorMessage), 'custody delivery failed')) {
+        http_response_code(502);
+        echo json_encode(['ok' => false, 'error' => 'delivery failed, order marked failed for review']);
+        exit;
+    }
 
     http_response_code(500);
     echo json_encode(['ok' => false, 'error' => 'server error creating order']);
@@ -482,6 +520,22 @@ function decodeCip25Metadata(string $json, string $tokenId, string $fallbackName
         'name' => $safeName,
         'rarefolio_token_id' => $tokenId,
     ];
+}
+function resolveCompanionUnit(array $cip25): ?string
+{
+    $candidates = [
+        $cip25['companion_unit'] ?? null,
+        $cip25['silver_shard_unit'] ?? null,
+        $cip25['companion']['unit'] ?? null,
+        $cip25['attributes']['companion_unit'] ?? null,
+        $cip25['attributes']['silver_shard_unit'] ?? null,
+    ];
+    foreach ($candidates as $c) {
+        if (!is_string($c) || trim($c) === '') continue;
+        $u = strtolower(preg_replace('/^0x/i', '', trim($c)));
+        if (preg_match('/^[0-9a-f]{56,}$/', $u)) return $u;
+    }
+    return null;
 }
 
 function resolveAssetNameUtf8(string $assetNameUtf8, string $assetNameHex, string $fallback): string

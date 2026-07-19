@@ -22,7 +22,10 @@ Auth::boot();
 
 // Already signed in? Bounce to the destination.
 if (Auth::isLoggedIn()) {
-    $next = $_GET['next'] ?? '/admin/index.php';
+    $next = (string) ($_GET['next'] ?? '/admin/index.php');
+    if (!preg_match('#^/admin/[A-Za-z0-9_./?=&-]*$#', $next)) {
+        $next = '/admin/index.php';
+    }
     header('Location: ' . $next);
     exit;
 }

@@ -9,7 +9,7 @@
  *   accepted secrets:
  *     - DOWNLOAD_VERIFY_SHARED_SECRET
  *     - DOWNLOAD_VERIFY_SHARED_SECRET_PREVIOUS (optional)
- *     - PUBLIC_SITE_WEBHOOK_SECRET (optional compatibility fallback)
+ *     - PUBLIC_SITE_WEBHOOK_SECRET (optional compatibility fallback when explicitly enabled)
  *   fallback headers:
  *     - X-RF-Verify-Secret
  *     - X-Download-Verify-Secret
@@ -97,9 +97,8 @@ function configured_shared_secrets(): array
         parse_secret_candidates((string) Config::get('DOWNLOAD_VERIFY_SHARED_SECRET_PREVIOUS', ''))
     );
 
-    // Compatibility fallback: allow current webhook secret by default so
-    // ownership verifier remains available during secret rollout drift.
-    $allowWebhookFallback = Config::bool('DOWNLOAD_VERIFY_ALLOW_WEBHOOK_FALLBACK', true);
+    // Compatibility fallback: allow webhook secret only when explicitly enabled.
+    $allowWebhookFallback = Config::bool('DOWNLOAD_VERIFY_ALLOW_WEBHOOK_FALLBACK', false);
     if ($allowWebhookFallback) {
         $values = array_merge(
             $values,
@@ -404,14 +403,14 @@ try {
 
     if (!$signatureBackendOk) {
         $network = strtolower((string) Config::get('BLOCKFROST_NETWORK', 'preprod'));
+        $allowAddrFallback = Config::bool('OWNERSHIP_VERIFY_ALLOW_ADDR_FALLBACK', false);
         $addrMatch = (
             $ownerAddr !== '' &&
             normalize_addr($signedAddr) !== '' &&
             strtolower(normalize_addr($signedAddr)) === strtolower(normalize_addr($ownerAddr))
         );
-        // Temporary compatibility fallback for preprod while sidecar auth
-        // endpoint is unavailable. Mainnet remains strict.
-        if ($network !== 'mainnet' && $addrMatch) {
+        // Optional compatibility fallback for non-mainnet environments only.
+        if ($allowAddrFallback && $network !== 'mainnet' && $addrMatch) {
             $signatureValid = true;
         } else {
             fail_json(502, 'sidecar signature verification failed');

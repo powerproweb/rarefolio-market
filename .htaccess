@@ -4,10 +4,10 @@
 # Rarefolio Phase F hardening, block direct HTTP access to internal paths
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteRule ^(?:src|db|sidecar)(?:/|$) - [F,L,NC]
+  RewriteRule ^(?:src|db|sidecar|tests|scripts|docs)(?:/|$) - [F,L,NC]
 </IfModule>
 <IfModule !mod_rewrite.c>
-  RedirectMatch 403 ^/(src|db|sidecar)(/|$)
+  RedirectMatch 403 ^/(src|db|sidecar|tests|scripts|docs)(/|$)
 </IfModule>
 
 # php -- BEGIN cPanel-generated handler, do not edit

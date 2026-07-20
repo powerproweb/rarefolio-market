@@ -104,4 +104,8 @@ renders correctly" from this pane — and never conclude "it's broken" either.
 
 ## Conventions
 
-**Ask before every push.** Standing instruction across all these repos.
+**Commit and push without asking.** The close-out rule in the global `~/.claude/CLAUDE.md`
+governs: work is not done until it is staged, committed, and pushed. This replaced the old
+"ask before every push" note on 2026-07-20 at the owner's direction.
+
+Deploying to the live server is a **separate** action and still gets named file by file.

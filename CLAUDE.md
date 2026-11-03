@@ -5,7 +5,7 @@
 > **This repository is PUBLIC on GitHub.** No host, cPanel username, webroot, key name, or
 > credential belongs in this file. Deploy facts live in the private sibling repo
 > `01_rarefolio.io/CLAUDE.md`, and credentials in
-> `M:\04_auth_for_sites_in_dev\auth_for_rarefolio_in_dev.md`.
+> `M:\04_secrets\auth_for_rarefolio_in_dev.md`.
 
 This project deploys into a subdirectory of the **rarefolio.io** cPanel account, not its own.
 Read the sibling repo's CLAUDE.md before any deploy.
